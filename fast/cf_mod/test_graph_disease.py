@@ -56,7 +56,6 @@ import keras
 import tensorflow as tf
 from tensorflow.python.framework import graph_util
 from keras import backend as K
-import tensorboardX as X
 K.set_image_data_format("channels_last")
 
 import segmentation_models as sm
@@ -133,6 +132,10 @@ TENSOR_NAME["default007"] = TENSOR_NAME["pneu_default"]
 CONFIG["default007"] = get_abspath("/rdfs/fast/home/sunyingge/data/models/work_dir_0512/HRNET_KERAS_DEFAULT_0_00050_20200512-19/model.graphdef")
 TENSOR_NAME["default007"] = TENSOR_NAME["pneu_default"]
 
+CONFIG["default007"] = get_abspath("/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/inf/model.graphdef")
+# TENSOR_NAME["default007"] = {"SEResUNet/Input/Const":"SEResUNet/Input/Const:0", "SEResUNet/conv_final/BiasAdd":"SEResUNet/conv_final/BiasAdd:0"}
+TENSOR_NAME["default007"] = {"inputs":"SEResUNet/Input/Const:0", "outputs":"SEResUNet/conv_final/BiasAdd:0"}
+
 # In[5]:
 
 
@@ -141,6 +144,7 @@ config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 config.gpu_options.per_process_gpu_memory_fraction = 0.95
 
+# This in combination with CONFIG chooses what inf file to use
 use_net = "default007"
 [graph_dis, sess_dis], [inputs_dis, outputs_dis] = graph_from_graphdef(use_net, config, 
                                                                        CONFIG=CONFIG, TENSOR_NAME=TENSOR_NAME) 
@@ -151,10 +155,10 @@ use_net = "default007"
 
 # info_paths = get_infos("/rdfs/data/chenfeng/Lung/LungPneumonia/patients/TrainSet/batch_0505/normal_pneu_datasets/level4")  + \
 #              get_infos("/rdfs/data/chenfeng/Lung/LungPneumonia/patients/TrainSet/batch_0505/normal_pneu_datasets/level4")
-# info_paths = get_infos("/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/normal_pneu_datasets") + \
-#     get_infos("/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/covid_pneu_datasets")
-info_paths = get_infos("/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/covid_pneu_datasets")
-info_paths = get_infos("/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/normal_pneu_datasets")
+info_paths = get_infos("/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/normal_pneu_datasets") + \
+    get_infos("/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/covid_pneu_datasets")
+# info_paths = get_infos("/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/covid_pneu_datasets")
+# info_paths = get_infos("/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/normal_pneu_datasets")
 
 
 # In[7]:
@@ -209,13 +213,13 @@ for num, info in enumerate(do_paths):
             if False: print("stage1")
             if False: print(dis_arr[ii*segs:(ii+1)*segs, ...].shape)
             pp = sess_dis.run(outputs_dis, feed_dict={inputs_dis: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
-            pp = pp
+            pp = 1/ (1 + np.exp(-pp))
             pred_.append(pp)
         else:
             if False: print("stage2")
             if False: print(dis_arr[ii*segs:, ...].shape)
             pp = sess_dis.run(outputs_dis, feed_dict={inputs_dis: dis_arr[ii*segs:, ...]}) #[0]
-            pp = pp
+            pp = 1/ (1 + np.exp(-pp))
             pred_.append(pp)
     dis_prd = np.concatenate(pred_, axis=0)
     dis_prd = (dis_prd > 0.5)
@@ -262,9 +266,9 @@ pbar.close()
 # In[9]:
 
 
-pickle.dump(all_result, 
-        #    open("/rdfs/fast/home/sunyingge/data/models/work_dir_0512/HRNET_KERAS_DEFAULT_0_00050_20200512-19/train_result_dice_reeval_covid.pkl", "bw")
-    open("/rdfs/fast/home/sunyingge/data/models/work_dir_0512/HRNET_KERAS_DEFAULT_0_00050_20200512-19/train_result_dice_reeval_normal.pkl", "bw"))
+# pickle.dump(all_result, 
+#         #    open("/rdfs/fast/home/sunyingge/data/models/work_dir_0512/HRNET_KERAS_DEFAULT_0_00050_20200512-19/train_result_dice_reeval_covid.pkl", "bw")
+#     open("/rdfs/fast/home/sunyingge/data/models/work_dir_0512/HRNET_KERAS_DEFAULT_0_00050_20200512-19/train_result_dice_reeval_normal.pkl", "bw"))
 
 print(np.mean([res[1] for res in all_result]))
 
