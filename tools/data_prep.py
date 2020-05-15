@@ -3,27 +3,44 @@ import multiprocessing as mp
 from functools import partial
 from os.path import join as pj
 
-sys.path.insert(0, "..")
+sys.path.insert(0, ".")
 from utils.data_proc import extract_slice
 
 def list_data(data_dir):
-    data_list, file_cnt = [], 0
+    data_list, error_cnt = [], 0
     for root, _, files in os.walk(data_dir):
-        pat_id = root.split('/')[-2]
+        pat_id = root.split('/')[-1]
         for f in files:
-            pat_id
-            if f.endswith("label.nii.gz"):
-                ann_file = pj(root, f)
-                im_file = pj(root, f.split('-')[0] + ".nii.gz")
-                if os.path.exists(im_file):
-                    data_list.append([im_file, ann_file])
-                    file_cnt += 1
-                else:
-                    print(im_file)
-                    print('hi')
-                    print(files)
+            ann_file, im_file = None, None
+            try:
+                if f.endswith("label.nii.gz"):
+                    ann_file = pj(root, f)
+                    if not f.startswith(pat_id):
+                        raise Exception("Anno file inconsistent with subdir!")
+                elif f.endswith(".nii.gz"):
+                    im_file = pj(root, f)
+                    if not f.startswith(pat_id):
+                        raise Exception("Img file inconsistent with subdir!")
+            except Exception as e:
+                print(e)
+                print(root)
+                print(files)
+                error_cnt += 1
+            if ann_file and im_file:
+                data_list.append([im_file, ann_file])
+
+            # if f.endswith("label.nii.gz"):
+            #     ann_file = pj(root, f)
+            #     im_file = pj(root, f.split('-')[0] + ".nii.gz")
+            #     if os.path.exists(im_file):
+            #         data_list.append([im_file, ann_file])
+            #         file_cnt += 1
+            #     else:
+            #         print(im_file)
+            #         print('hi')
+            #         print(files)
                 
-    print(f"Number of nii files: {file_cnt}")
+    print(f"Number of inconsistencies: {error_cnt}")
     return data_list
 
 def data_prep(
