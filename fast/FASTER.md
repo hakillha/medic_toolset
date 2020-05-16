@@ -7,6 +7,8 @@ CONFIG["default007"], TENSOR_NAME
 target_dir of `pickle.dump()`  
 import path
 
+`demon.py` for data preparation.
+
 # TODO
 * Save tensorboard log
 * Calculate steps

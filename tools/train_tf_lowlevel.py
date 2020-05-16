@@ -118,10 +118,7 @@ with tf.Session(config=config) as sess:
 
             # ret_loss, _ = sess.run([loss, optimizer],
             ret_loss, ret_pred, ret_ce, _ = sess.run([loss, pred, ce, optimizer],
-                feed_dict={
-                    input_im: im_ar,
-                    input_ann: ann_ar,
-                    })
+                feed_dict={input_im: im_ar, input_ann: ann_ar,})
             print(ret_loss)
         saver.save(sess, pj(args.output_dir, f"epoch_{epoch + 1}.ckpt"))
         epoch += 1
