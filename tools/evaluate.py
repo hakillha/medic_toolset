@@ -14,6 +14,30 @@ from misc.my_metrics import dice_coef_pat
 sys.path.insert(0, "/rdfs/fast/home/sunyingge/code/test/pt_ground/fast/")
 from ASEUNet import SEResUNet
 
+def show_dice(all_res):
+    stats = defaultdict(list)
+    for res in all_res:
+        if 'covid_pneu_datasets' in res[0]:
+            if res[2] >= args.thickness_thres:
+                stats['covid'].append(res[1])
+                stats['thick'].append(res[1])
+                stats['covid_thick'].append(res[1])
+            elif res[2] < args.thickness_thres:
+                stats['covid'].append(res[1])
+                stats['thin'].append(res[1])
+                stats['covid_thin'].append(res[1])
+        elif 'normal_pneu_datasets' in res[0]:
+            if res[2] >= args.thickness_thres:
+                stats['normal'].append(res[1])
+                stats['thick'].append(res[1])
+                stats['normal_thick'].append(res[1])
+            elif res[2] < args.thickness_thres:
+                stats['normal'].append(res[1])
+                stats['thin'].append(res[1])
+                stats['normal_thin'].append(res[1])
+    for key in stats:
+        print(f"{key}: {np.mean(np.array(stats[key]))}")
+
 def parse_args():
     parser = argparse.ArgumentParser("")
     parser.add_argument("mode", choices=["eval", "calc_dice"],
@@ -26,44 +50,37 @@ def parse_args():
                 "--pkl_dir"
             """
             )
+    parser.add_argument("gpu")
     parser.add_argument("--input_file",
         # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/epoch_9.ckpt",
-        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/epoch_9_res.pkl")
+        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/epoch_9_res.pkl"
+        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0516/epoch_5.ckpt",
+        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22.ckpt",
+        )
     parser.add_argument("--testset_dir", nargs='+',
         default=["/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/normal_pneu_datasets",
         "/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/covid_pneu_datasets"])
     parser.add_argument("--pkl_dir",
-        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/epoch_9_res.pkl")
+        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0516/epoch_5_res.pkl",
+        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22_res.pkl",
+        )
     parser.add_argument("--thickness_thres", default=3.0)
+    parser.add_argument("--batch_size", default=32)
     return parser.parse_args()
 
 args = parse_args()
 
 class Args(object):
     def __init__(self):
-        self.gpu = "2"
-        self.n_channels = 2
-        self.n_classes = 1
-        self.epochs = 80
-        self.initial_epoch = 0
-        self.global_step = 0
-        self.batchsize = 4
-        self.lr = 0.0005
-        self.percentage = 0.1
-        self.load = False
-        self.save_cp = True
         self.img_size = (256, 256)
-        self.description = "HRNET_KERAS_DEFAULT"
-
-        # REMEMBER TO CHANGE THIS ACCORDINGLY!
-        self.steps = [100000, 200000]
-        self.lr = [1e-3, 5e-4, 25e-5]
 
 if args.mode == "eval":
     model_args = Args()
-    os.environ["CUDA_VISIBLE_DEVICES"] = model_args.gpu
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    info_paths = [get_infos(folder) for folder in args.testset_dir]
+    info_paths = []
+    for folder in args.testset_dir:
+        info_paths += get_infos(folder)
     info_paths = sorted(info_paths, key=lambda info:info[0])
     all_result = []
     do_paths = info_paths
@@ -105,7 +122,8 @@ if args.mode == "eval":
         dis_arr = np.expand_dims(dis_arr, axis=-1)
         
         pred_ = []
-        segs =  16 # batch_size?
+        # segs =  16 # batch_size?
+        segs = args.batch_size
         assert isinstance(segs, int) and (segs>0) & (segs<70), "Please" 
         step = depth//segs + 1 if depth%segs != 0 else depth//segs
         for ii in range(step):
@@ -161,32 +179,11 @@ if args.mode == "eval":
         
         pbar.update(1)
     pbar.close()
+    if os.path.exists(args.pkl_dir):
+        input("Result file already exists. Press enter to continue and overwrite it...")
     pickle.dump(all_result, open(args.pkl_dir, "bw"))
-    print(np.mean([res[1] for res in all_result]))
-    print(np.mean([res[1] for res in all_result if 'covid_pneu_datasets' in res[0]]))
-    print(np.mean([res[1] for res in all_result if 'normal_pneu_datasets' in res[0]]))
+    show_dice(all_result)
 elif args.mode == "calc_dice":
     with open(args.input_file, "br") as f:
         all_res = pickle.load(f)
-    stats = defaultdict(list)
-    for res in all_res:
-        if 'covid_pneu_datasets' in res[0]:
-            if res[2] >= args.thickness_thres:
-                stats['covid'].append(res[1])
-                stats['thick'].append(res[1])
-                stats['covid_thick'].append(res[1])
-            elif res[2] < args.thickness_thres:
-                stats['covid'].append(res[1])
-                stats['thin'].append(res[1])
-                stats['covid_thin'].append(res[1])
-        elif 'normal_pneu_datasets' in res[0]:
-            if res[2] >= args.thickness_thres:
-                stats['normal'].append(res[1])
-                stats['thick'].append(res[1])
-                stats['normal_thick'].append(res[1])
-            elif res[2] < args.thickness_thres:
-                stats['normal'].append(res[1])
-                stats['thin'].append(res[1])
-                stats['normal_thin'].append(res[1])
-    for key in stats:
-        print(f"{key}: {np.mean(np.array(stats[key]))}")
+    show_dice(all_res)

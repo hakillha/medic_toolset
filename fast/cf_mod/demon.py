@@ -1,6 +1,7 @@
 import argparse, os, sys
 import multiprocessing as mp
 from functools import partial
+from os.path import join as pj
 
 sys.path.insert(0, "/rdfs/fast/home/sunyingge/code/chenfeng")
 from misc.utils import get_infos
@@ -15,8 +16,8 @@ def get_slice_dataset(
         pro_fn=None,
         isprint=False
         ):
-    info_paths = get_infos(data_dir, link=link)
-    target_dir = os.path.join(out_dir, data_dir_post)
+    info_paths = get_infos(pj(data_dir, data_dir_post), link=link)
+    target_dir = pj(out_dir, data_dir_post)
     if not os.path.exists(target_dir): 
         os.makedirs(target_dir)
     func_1 = partial(extract_slice_1ch,

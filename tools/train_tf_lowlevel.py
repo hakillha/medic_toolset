@@ -1,4 +1,4 @@
-import argparse, os, sys
+import argparse, os, sys, time
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
@@ -12,20 +12,25 @@ from fast.cf_mod.misc.data_tools import BaseDataset, paths_for_dataset
 from fast.ASEUNet import SEResUNet
 
 def parse_args():
-    parser = argparse.ArgumentParser("")
+    parser = argparse.ArgumentParser(
+        """You need to be careful with resuming while also changing the batch size 
+        with this script since it would change how many steps to take to drop LR.""")
     parser.add_argument("mode", choices=["train", "only_eval"])
     parser.add_argument("gpu", help="Choose GPU.")
     
     # TODO: add an automatically generated (time-related) postfix
     parser.add_argument("-o", "--output_dir",
-        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0516/")
+        help="""You only need to provide a prefix which will be automatically be 
+            complemented by time to keep things distincive easily.""",
+        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_")
 
     # Training mode related
     parser.add_argument("--train_dir", help="Training set directory.",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train/",)
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0516/",)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--resume", help="Checkpoint file to resume from.",
-        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_11.ckpt")
+        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_11.ckpt")
+    )
 
     return parser.parse_args()
     # So that this works with jupyter
@@ -92,15 +97,17 @@ config = tf.ConfigProto(allow_soft_placement=True)
 config.gpu_options.allow_growth = True
 config.gpu_options.per_process_gpu_memory_fraction = 0.95
 
-if not os.path.exists(args.output_dir):
-    os.makedirs(args.output_dir)
+output_dir = args.output_dir + time.strftime("", time.localtime())
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
 saver = tf.train.Saver(max_to_keep=training_args.max_to_keep)
 
+num_para = np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()])
+print("Total number of trainable parameters: {:.3}M.\n".format(float(num_para)/1e6))
 with tf.Session(config=config) as sess:
     sess.run(tf.global_variables_initializer())
     if args.resume:
         saver.restore(sess, args.resume)
-    if args.resume:
         # This needs to be changed if the naming rule changes
         epoch = int((os.path.basename(args.resume).split('.')[0]).split('_')[-1])
     else:
@@ -116,7 +123,6 @@ with tf.Session(config=config) as sess:
             data_ar = np.array(data_list)
             im_ar, ann_ar = data_ar[:,0,:,:,:], data_ar[:,1,:,:,:]
 
-            # ret_loss, _ = sess.run([loss, optimizer],
             ret_loss, ret_pred, ret_ce, _ = sess.run([loss, pred, ce, optimizer],
                 feed_dict={input_im: im_ar, input_ann: ann_ar,})
             print(ret_loss)
