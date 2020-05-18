@@ -161,6 +161,7 @@ def extract_slice_1ch(info, to_dir, sub_dir="new_test", \
             elif phase=="others":
                 pass
         pos_mask, neg_mask = None, None
+        # pick out the channels/depths
         if tofor == "disease":
             pos_mask = (lab == 1).any(axis=(-1, -2))
         elif tofor == "lobe":

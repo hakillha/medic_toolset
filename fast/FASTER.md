@@ -1,11 +1,10 @@
 # Ideas
-* Regularization: weight decay  
+* Regularization: weight decay/l2 norm loss  
 tensorflow.org/guide/migrate
-* Momentum
 * Use the upgrade script to only upgrade the model module and write a new pipeline?
 
 # Note
-* Check files integrity and shape consistency between images and annoataions.
+
 
 # Training
 > Training procedures:  
@@ -15,14 +14,16 @@ tensorflow.org/guide/migrate
 ## `train_tf_lowlevel.py`
 TODO: Add a specific name to ease the lookup for the input/output tensors.
 
+## Training meta-parameters
+2020_0518: The parameters that you should care about:
+> Clipping thresholds; reduction for SEResUNet(=8 currently); min_ct_1ch=-1400, max_ct_1ch=800; optimizer: Adam with LR=[1e-3, 5e-4, 25e-5] decreasing at epoch [4, 8].
+
 # TODO
 * Save tensorboard log
 * Keep a separate text file to keep a good track of all the files in each split set and to keep everyone's data consistent.
+* Check files integrity and shape consistency between images and annoataions.
 
-# Linux Cheatsheet
-* Count number of files recursively: `find DIR_NAME -type f | wc -l`
-
-## Useful Skills/Tricks
+# Useful Skills/Tricks
 * `ssh -L 8080:localhost:8180 sunyingge@172.17.128.236 ssh -N -L 8180:localhost:8080 node2`  
 You can think of this as running the first SSH and tell it to run another SSH on the server immediately after login. `8080:localhost:8180` is like address/port assigning (`8080=localhost:8180`). That is, your local 8080 port now points to the 8180 port of the remote machine so when you chain them together the local `8080` port is basically `localhost:localhost:8080`. The `-N` is basically equvalent telling SSH to connect but do nothing more and since you tell the first SSH to run another SSH client, only the second SSH command should have the `-N` option enabled.
 * `tmux`, a particularly useful tool when you are working on a server, look it up.
@@ -31,6 +32,9 @@ You can think of this as running the first SSH and tell it to run another SSH on
     if os.path.exists(args.pkl_dir):
         input("Result file already exists. Press enter to continue and overwrite it...")
     ```
+
+## Linux Cheatsheet
+* Count number of files recursively: `find DIR_NAME -type f | wc -l`
 
 # Garage
 What need to be changed in `test_graph_disease.py`:  
@@ -41,25 +45,3 @@ import path
 
 `demon.py` for data preparation.
 
-
-```
-batch_0505: 
-defaultdict(<class 'int'>, {'covid': 771, 'thick': 1412, 'covid_thick': 720, 'thin': 81, 'covid_thin': 51, 'Not in covid nor normal_pneu': 864, 'normal': 722, 'normal_thick': 692, 'n
-ormal_thin': 30})
-batch_0507: 
-defaultdict(<class 'int'>, {'covid': 152, 'thick': 85, 'covid_thick': 81, 'thin': 134, 'covid_thin': 71, 'normal': 67, 'normal_thin': 63, 'normal_thick': 4})
-batch_0508: 
-defaultdict(<class 'int'>, {'covid': 106, 'thick': 25, 'covid_thick': 25, 'thin': 81, 'covid_thin': 81})
-batch_0509: 
-defaultdict(<class 'int'>, {'normal': 163, 'thick': 163, 'normal_thick': 163})
-batch_0510: 
-defaultdict(<class 'int'>, {'covid': 233, 'thick': 227, 'covid_thick': 195, 'thin': 61, 'covid_thin': 38, 'normal': 55, 'normal_thin': 23, 'normal_thick': 32})
-batch_0511: 
-defaultdict(<class 'int'>, {'covid': 365, 'thin': 434, 'covid_thin': 123, 'thick': 670, 'covid_thick': 242, 'normal': 739, 'normal_thin': 311, 'normal_thick': 428})
-batch_0513: 
-defaultdict(<class 'int'>, {'covid': 147, 'thin': 133, 'covid_thin': 133, 'thick': 14, 'covid_thick': 14})
-batch_0514: 
-defaultdict(<class 'int'>, {'covid': 28, 'thick': 53, 'covid_thick': 28, 'normal': 54, 'thin': 29, 'normal_thin': 29, 'normal_thick': 25})
-batch_0515: 
-defaultdict(<class 'int'>, {'covid': 62, 'thick': 106, 'covid_thick': 61, 'thin': 19, 'covid_thin': 1, 'normal': 63, 'normal_thick': 45, 'normal_thin': 18})
-```

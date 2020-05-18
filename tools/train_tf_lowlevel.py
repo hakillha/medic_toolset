@@ -7,7 +7,9 @@ from os.path import join as pj
 # When the TF module is large enough create a seperate folder for it
 # TODO: Change working directory to point to folder of this script
 sys.path.insert(0, "..") 
-from fast.cf_mod.misc.data_tools import BaseDataset, paths_for_dataset
+# from fast.cf_mod.misc.data_tools import BaseDataset, paths_for_dataset
+from fast.cf_mod.misc.data_tools import BaseDataset
+from utils.data_proc import paths_from_data
 # TODO: unify the process of building models
 from fast.ASEUNet import SEResUNet
 
@@ -26,7 +28,7 @@ def parse_args():
 
     # Training mode related
     parser.add_argument("--train_dir", help="Training set directory.",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0516/",)
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0518/",)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--resume", help="Checkpoint file to resume from.",
         # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_11.ckpt")
@@ -65,20 +67,17 @@ class Args(object):
 training_args = Args()
 
 print("==>>Training set: ")
-train_all, train_pos, train_neg = paths_for_dataset(args.train_dir,
-    flags=["train"],
-    seed=999,
-    isprint=True)
-train_paths_cons  = train_pos["train"]
-train_paths_chan  = []
+# _, train_pos, _ = paths_for_dataset(args.train_dir,
+#     flags=["train"],
+#     seed=999,
+#     isprint=True)
+train_paths  = paths_from_data(args.train_dir)
 np.random.seed(999)
-train_paths_cons = np.random.permutation(train_paths_cons).tolist()
-train_paths_chan = np.random.permutation(train_paths_chan).tolist()
+train_paths = np.random.permutation(train_paths).tolist()
 print("++"*30)
-print(f"Length of train_paths_cons: {len(train_paths_cons)}")
-print(f"Length of train_paths_chan: {len(train_paths_chan)}")
-train_dataset = BaseDataset(train_paths_cons, train_paths_chan, img_size=training_args.img_size, choice="all",
-    image_key="image", mask_key="mask")
+print(f"Number of training samples: {len(train_paths)}")
+train_dataset = BaseDataset(train_paths, [], img_size=training_args.img_size, choice="all",
+    image_key="im", mask_key="mask")
 print(f"train_dataset: {len(train_dataset)}")
 
 input_im = tf.placeholder(tf.float32, shape=(None, training_args.img_size[0], training_args.img_size[1], 1))

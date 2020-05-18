@@ -95,8 +95,9 @@ def parse_args():
 args = parse_args()
 
 for post in args.data_dir_postfix:
-    stats_res = collect_stats(pj(args.data_dir, post), args.thickness_thres)
-    print(f"{post}: ")
-    print(stats_res)
-    if not args.stats:
+    if args.stats:
+        stats_res = collect_stats(pj(args.data_dir, post), args.thickness_thres)
+        print(f"{post}: ")
+        print(stats_res)
+    else:
         get_slice_dataset(args.data_dir, post, args.out_dir)
