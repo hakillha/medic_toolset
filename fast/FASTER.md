@@ -40,3 +40,26 @@ target_dir of `pickle.dump()`
 import path
 
 `demon.py` for data preparation.
+
+
+```
+batch_0505: 
+defaultdict(<class 'int'>, {'covid': 771, 'thick': 1412, 'covid_thick': 720, 'thin': 81, 'covid_thin': 51, 'Not in covid nor normal_pneu': 864, 'normal': 722, 'normal_thick': 692, 'n
+ormal_thin': 30})
+batch_0507: 
+defaultdict(<class 'int'>, {'covid': 152, 'thick': 85, 'covid_thick': 81, 'thin': 134, 'covid_thin': 71, 'normal': 67, 'normal_thin': 63, 'normal_thick': 4})
+batch_0508: 
+defaultdict(<class 'int'>, {'covid': 106, 'thick': 25, 'covid_thick': 25, 'thin': 81, 'covid_thin': 81})
+batch_0509: 
+defaultdict(<class 'int'>, {'normal': 163, 'thick': 163, 'normal_thick': 163})
+batch_0510: 
+defaultdict(<class 'int'>, {'covid': 233, 'thick': 227, 'covid_thick': 195, 'thin': 61, 'covid_thin': 38, 'normal': 55, 'normal_thin': 23, 'normal_thick': 32})
+batch_0511: 
+defaultdict(<class 'int'>, {'covid': 365, 'thin': 434, 'covid_thin': 123, 'thick': 670, 'covid_thick': 242, 'normal': 739, 'normal_thin': 311, 'normal_thick': 428})
+batch_0513: 
+defaultdict(<class 'int'>, {'covid': 147, 'thin': 133, 'covid_thin': 133, 'thick': 14, 'covid_thick': 14})
+batch_0514: 
+defaultdict(<class 'int'>, {'covid': 28, 'thick': 53, 'covid_thick': 28, 'normal': 54, 'thin': 29, 'normal_thin': 29, 'normal_thick': 25})
+batch_0515: 
+defaultdict(<class 'int'>, {'covid': 62, 'thick': 106, 'covid_thick': 61, 'thin': 19, 'covid_thin': 1, 'normal': 63, 'normal_thick': 45, 'normal_thin': 18})
+```

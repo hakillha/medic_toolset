@@ -97,7 +97,7 @@ config = tf.ConfigProto(allow_soft_placement=True)
 config.gpu_options.allow_growth = True
 config.gpu_options.per_process_gpu_memory_fraction = 0.95
 
-output_dir = args.output_dir + time.strftime("", time.localtime())
+output_dir = args.output_dir + time.strftime("%m_%d_%H_%M", time.localtime())
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 saver = tf.train.Saver(max_to_keep=training_args.max_to_keep)
