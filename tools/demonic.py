@@ -10,13 +10,14 @@ import SimpleITK as sitk
 sys.path.insert(0, "..")
 from utils.data_proc import get_infos, extract_slice_single_file
 
-def gen_slice_dataset(data_dir, data_dir_post, out_dir, link="-", 
-                      min_ct_1ch=-1400, max_ct_1ch=800, num_cpu=8):
+def gen_slice_dataset(data_dir, data_dir_post, out_dir, multicat, discard_neg, 
+        link="-", min_ct_1ch=-1400, max_ct_1ch=800, num_cpu=8):
     info_paths = get_infos(pj(data_dir, data_dir_post), link=link)
 
     # extract_slice_sequential(info_paths, out_dir, data_dir_post, min_ct_1ch, max_ct_1ch)
     extract = partial(extract_slice_single_file, 
-        out_dir=out_dir, data_dir_post=data_dir_post, min_ct_1ch=-1400, max_ct_1ch=800)
+        out_dir=out_dir, data_dir_post=data_dir_post, min_ct_1ch=-1400, max_ct_1ch=800,
+        multicat=multicat, discard_neg=discard_neg)
     pool = mp.Pool(num_cpu)
     pool.map(extract, info_paths)
     pool.close()
@@ -38,12 +39,15 @@ def parse_args():
             )
     parser.add_argument("--out_dir",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0516",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0518_fixed",
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519",
     )
     parser.add_argument("--thickness_thres", default=3.0)
+    parser.add_argument("--multicat", action="store_true", default=True)
+    parser.add_argument("--discard_neg", action="store_true", default=True)
     return parser.parse_args()
 
+# TODO: print out the args for debug purpose
 args = parse_args()
 
 for post in args.data_dir_postfix:
-    gen_slice_dataset(args.data_dir, post, args.out_dir)
+    gen_slice_dataset(args.data_dir, post, args.out_dir, args.multicat, args.discard_neg)

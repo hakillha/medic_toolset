@@ -1,10 +1,6 @@
-# Ideas
-* Regularization: weight decay/l2 norm loss  
-tensorflow.org/guide/migrate
-* Use the upgrade script to only upgrade the model module and write a new pipeline?
-
-# Note
-
+# Task
+## Multiclass segmentation
+2020/05/18: Covid pneu is labeled with 1 and common pneu is labeled with 2 now.
 
 # Training
 > Training procedures:  
@@ -15,7 +11,7 @@ tensorflow.org/guide/migrate
 TODO: Add a specific name to ease the lookup for the input/output tensors.
 
 ## Training meta-parameters
-2020_0518: The parameters that you should care about:
+2020/05/18: The parameters that you should care about:
 > Clipping thresholds; reduction for SEResUNet(=8 currently); min_ct_1ch=-1400, max_ct_1ch=800; optimizer: Adam with LR=[1e-3, 5e-4, 25e-5] decreasing at epoch [4, 8].
 
 # TODO
@@ -35,7 +31,12 @@ You can think of this as running the first SSH and tell it to run another SSH on
 
 ## Linux Cheatsheet
 * Count number of files recursively: `find DIR_NAME -type f | wc -l`
+# Ideas
+* Regularization: weight decay/l2 norm loss  
+tensorflow.org/guide/migrate
+* Use the upgrade script to only upgrade the model module and write a new pipeline?
 
+# Note
 # Garage
 What need to be changed in `test_graph_disease.py`:  
 `info_paths`  

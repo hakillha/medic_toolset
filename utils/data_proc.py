@@ -86,14 +86,17 @@ def get_infos(root_dir, link="-", isprint=True):
     if isprint: print("all_picked: {}".format(get_num))
     return get_paths 
 
-def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max_ct_1ch):
+def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max_ct_1ch,
+        multicat, discard_neg):
     im_file, anno_file = info_path
-    print(im_file)
-    if "covid" in im_file:
-        condition_cat = "covid"
-    elif "normal" in im_file:
-        condition_cat = "normal"
+    # print(im_file)
+    if "covid_pneu" in im_file:
+        condition_cat = "covid_pneu"
+    elif "normal_pneu" in im_file:
+        condition_cat = "normal_pneu"
     elif "healthy" in im_file:
+        if discard_neg:
+            return
         condition_cat = "healthy"
     else:
         print("Unknown condition!")
@@ -107,28 +110,34 @@ def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max
         im_np = (im_np - np.amin(im_np) + EPS) / (np.amax(im_np) - np.amin(im_np) + EPS)
         im_np = np.expand_dims(im_np, -1)
         pos_index = ann_np >= 1
-        ann_np[pos_index], ann_np[~pos_index] = 1, 0
+        if multicat:
+            if condition_cat == "normal_pneu":
+                ann_np[pos_index] = 2
+            elif condition_cat == "covid_pneu":
+                ann_np[pos_index] = 1
+            ann_np[~pos_index] = 0
+        else:
+            ann_np[pos_index], ann_np[~pos_index] = 1, 0
+
         # separate the pos/neg slices
-        pos_slice_mask = (ann_np == 1).any(axis=(-1, -2))
-        neg_slice_mask = ~pos_slice_mask
+        pos_slice_mask = (ann_np > 0).any(axis=(-1, -2))
         pos_im, pos_ann = im_np[pos_slice_mask], ann_np[pos_slice_mask]
-        neg_im, neg_ann = im_np[neg_slice_mask], ann_np[neg_slice_mask]
         for sli in range(pos_im.shape[0]):
             save_dir = pj(out_dir, data_dir_post, condition_cat, patient_id, 'pos')
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
             with open(pj(save_dir, f"{sli}.pkl"), "wb") as f:
                 pickle.dump({"im": pos_im[sli, ...], "mask": pos_ann[sli, ...]}, f)
-            # np.save(pj(save_dir, str(sli)+"_im.npy"), pos_im[sli, ...])
-            # np.save(pj(save_dir, str(sli)+"_ann.npy"), pos_ann[sli, ...])
-        for sli in range(neg_im.shape[0]):
-            save_dir = pj(out_dir, data_dir_post, condition_cat, patient_id, 'neg')
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
-            with open(pj(save_dir, f"{sli}.pkl"), "wb") as f:
-                pickle.dump({"im": neg_im[sli, ...], "mask": neg_ann[sli, ...]}, f)
-            # np.save(pj(save_dir, str(sli)+"_im.npy"), neg_im[sli, ...])
-            # np.save(pj(save_dir, str(sli)+"_ann.npy"), neg_ann[sli, ...])
+
+        if not discard_neg:
+            neg_slice_mask = ~pos_slice_mask
+            neg_im, neg_ann = im_np[neg_slice_mask], ann_np[neg_slice_mask]
+            for sli in range(neg_im.shape[0]):
+                save_dir = pj(out_dir, data_dir_post, condition_cat, patient_id, 'neg')
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
+                with open(pj(save_dir, f"{sli}.pkl"), "wb") as f:
+                    pickle.dump({"im": neg_im[sli, ...], "mask": neg_ann[sli, ...]}, f)
     except Exception as error:
         print(error)
 
