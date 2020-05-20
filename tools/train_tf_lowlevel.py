@@ -1,5 +1,5 @@
 import argparse, os, sys, time
-import cv2, pickle
+import cv2, pickle, shutil
 import matplotlib.pyplot as plt
 import numpy as np
 import SimpleITK as sitk
@@ -16,6 +16,7 @@ from fast.cf_mod.misc.data_tools import BaseDataset
 from fast.cf_mod.misc.utils import get_infos, resize3d, graph_from_graphdef, pre_img_arr_1ch
 from fast.cf_mod.misc.my_metrics import dice_coef_pat
 from utils.data_proc import paths_from_data
+from utils.config import Config
 # TODO: unify the process of building models
 from fast.ASEUNet import SEResUNet
 
@@ -32,7 +33,7 @@ def parse_args():
         """)
     parser.add_argument("mode", choices=["train", "eval"])
     parser.add_argument("gpu", help="Choose GPU.")
-    parser.add_argument("num_cls", type=int)
+    parser.add_argument("config", help="Config file.")
     
     # TODO: add an automatically generated (time-related) postfix
     parser.add_argument("-o", "--output_dir",
@@ -45,11 +46,13 @@ def parse_args():
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0518/",
         default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
         )
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=32,
+        help="Provided here to enable easy overwritting (not supported yet).")
     parser.add_argument("--resume", help="Checkpoint file to resume from.",
         # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_11.ckpt")
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_1.ckpt"
     )
+    parser.add_argument("--max_to_keep", default=30)
 
     # Eval mode related
     parser.add_argument("--model_file",
@@ -78,54 +81,34 @@ def parse_args():
     #     "/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/"
     # ])
 
-class Args(object):
-    def __init__(self, args):
-        self.batch_size = args.batch_size
-        self.img_size = (256, 256)
-        self.epochs = 40
-        # The network would behave quite differently when n_classes > 1
-        # and when n_classes == 1. The actual number of classes will be this 
-        # plus 1 (BG).
-        self.n_classes = args.num_cls
-        self.cat_map = {"covid_pneu": 1, "common_pneu": 2}
-        # self.n_channels = 2
-        # self.initial_epoch = 0
-        # self.global_step = 0
-        # self.lr = 0.0005
-        # self.percentage = 0.1
-        # self.load = False
-        # self.save_cp = True
-        # self.description = "HRNET_KERAS_DEFAULT"
-
-        self.steps = [4, 8] # The unit is epoch
-        self.lr = [1e-3, 5e-4, 25e-5]
-        self.max_to_keep = 30
-
 class tf_model():
-    def __init__(self, args, training_args, num_batches=None):
-        self.input_im = tf.placeholder(tf.float32, shape=(None, training_args.img_size[0], training_args.img_size[1], 1))
-        if training_args.n_classes == 1:
+    def __init__(self, args, cfg, num_batches=None):
+        self.input_im = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
+        if cfg.num_class == 1:
             self.pred = SEResUNet(self.input_im, num_classes=1, reduction=8, name_scope="SEResUNet")
         else:
-            self.pred = SEResUNet(self.input_im, num_classes=training_args.n_classes + 1, reduction=8, name_scope="SEResUNet")
+            self.pred = SEResUNet(self.input_im, num_classes=cfg.num_class + 1, reduction=8, name_scope="SEResUNet")
         
         if args.mode == "train":
-            if training_args.n_classes == 1:
+            if cfg.num_class == 1:
                 # For some reason float32 is working
-                self.input_ann = tf.placeholder(tf.float32, shape=(None, training_args.img_size[0], training_args.img_size[1], 1))
+                self.input_ann = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
                 self.ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
             else:
-                self.input_ann = tf.placeholder(tf.int32, shape=(None, training_args.img_size[0], training_args.img_size[1]))
-                self.ce = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
+                self.input_ann = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
+                if cfg.multiclass_loss == "softmax":
+                    pass
+                elif cfg.multiclass_loss == "sigmoid":
+                    self.ce = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
             self.loss = tf.reduce_mean(self.ce)
             global_step = tf.Variable(0, trainable=False)
             assert num_batches, "Please provide batch size for training mode!"
-            steps = [num_batches * epoch_step for epoch_step in training_args.steps]
+            steps = [num_batches * epoch_step for epoch_step in cfg.optimizer["epoch_to_drop_lr"]]
             print(f"Steps to drop LR: {steps}")
-            learning_rate = tf.train.piecewise_constant(global_step, steps, training_args.lr)
+            learning_rate = tf.train.piecewise_constant(global_step, steps, cfg.optimizer["lr"])
             self.optimizer = tf.train.AdamOptimizer(learning_rate).minimize(self.loss, global_step=global_step)
 
-def ini_training_set(args, training_args):
+def ini_training_set(args, cfg):
     print("==>>Training set: ")
     # _, train_pos, _ = paths_for_dataset(args.train_dir,
     #     flags=["train"],
@@ -136,22 +119,23 @@ def ini_training_set(args, training_args):
     train_paths = np.random.permutation(train_paths).tolist()
     print("++"*30)
     print(f"Number of training samples: {len(train_paths)}")
-    train_dataset = BaseDataset(train_paths, [], img_size=training_args.img_size, choice="all",
+    train_dataset = BaseDataset(train_paths, [], img_size=cfg.im_size, choice="all",
         image_key="im", mask_key="mask")
     print(f"train_dataset: {len(train_dataset)}")
     return train_dataset
 
-def train(sess, args, training_args):
-    train_dataset = ini_training_set(args, training_args)
-    num_batches = len(train_dataset) // training_args.batch_size
-    model = tf_model(args, training_args, num_batches)
+def train(sess, args, cfg):
+    train_dataset = ini_training_set(args, cfg)
+    num_batches = len(train_dataset) // cfg.batch_size
+    model = tf_model(args, cfg, num_batches)
     if args.resume:
         output_dir = os.path.dirname(args.resume)
     else:
         output_dir = args.output_dir + time.strftime("%m%d_%H%M", time.localtime())
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-    saver = tf.train.Saver(max_to_keep=training_args.max_to_keep)
+        shutil.copy(args.config, output_dir)
+    saver = tf.train.Saver(max_to_keep=args.max_to_keep)
     num_para = np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()])
     print("Total number of trainable parameters: {:.3}M.\n".format(float(num_para)/1e6))
     if args.resume:
@@ -161,16 +145,16 @@ def train(sess, args, training_args):
     else:
         sess.run(tf.global_variables_initializer())
         epoch = 0
-    while epoch < training_args.epochs:
+    while epoch < cfg.max_epoch:
         print(f"Epoch {epoch + 1}\n")
         for i in range(num_batches):
         # for i in range(10):
             print(f"Epoch progress: {i + 1} / {num_batches}")
             data_list = []
-            for j in range(i * training_args.batch_size, (i + 1) * training_args.batch_size):
+            for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
                 data_list.append(train_dataset[j])
             data_ar = np.array(data_list)
-            im_ar, ann_ar = data_ar[:,0,:,:,:], data_ar[:,1,:,:,:] if training_args.n_classes == 1 else data_ar[:,1,:,:,0]
+            im_ar, ann_ar = data_ar[:,0,:,:,:], data_ar[:,1,:,:,:] if cfg.num_class == 1 else data_ar[:,1,:,:,0]
 
             ret_loss, ret_pred, ret_ce, _ = sess.run([model.loss, model.pred, model.ce, model.optimizer],
                 feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
@@ -202,13 +186,13 @@ def show_dice(all_res):
     for key in stats:
         print(f"{key}: {np.mean(np.array(stats[key]))}")
 
-def evaluation(sess, args, training_args):
+def evaluation(sess, args, cfg):
     info_paths = []
     for folder in args.testset_dir:
         info_paths += get_infos(folder)
     info_paths = sorted(info_paths, key=lambda info:info[0])
     all_result = []
-    model = tf_model(args, training_args)
+    model = tf_model(args, cfg)
     saver = tf.train.Saver()
     saver.restore(sess, args.model_file)
     pbar = tqdm(total=len(info_paths))
@@ -236,7 +220,7 @@ def evaluation(sess, args, training_args):
         dis_arr = np.expand_dims(dis_arr, axis=-1)
         
         pred_ = []
-        segs = training_args.batch_size
+        segs = cfg.batch_size
         assert isinstance(segs, int) and (segs>0) & (segs<70), "Please" 
         step = depth//segs + 1 if depth%segs != 0 else depth//segs
         for ii in range(step):
@@ -264,13 +248,14 @@ def evaluation(sess, args, training_args):
 if __name__ == "__main__":
     args = parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    training_args = Args(args)
+    cfg = Config()
+    cfg.load_from_json(args.config)
     config = tf.ConfigProto(allow_soft_placement=True)
     config.gpu_options.allow_growth = True
     config.gpu_options.per_process_gpu_memory_fraction = 0.95
     sess = tf.Session(config=config)
 
     if args.mode == "train":
-        train(sess, args, training_args)
+        train(sess, args, cfg)
     elif args.mode == "eval":
-        evaluation(sess, args, training_args)
+        evaluation(sess, args, cfg)

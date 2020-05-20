@@ -2,7 +2,7 @@
     "batch_size": 32,
     "im_size": [256, 256],
     "max_epoch": 40,
-    "num_class": 1,
+    "num_class": 2,
     "optimizer":{
         "name": "Adam",
         "epoch_to_drop_lr": [4, 8],
