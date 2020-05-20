@@ -13,14 +13,11 @@ from tqdm import tqdm
 sys.path.insert(0, "..") 
 # from fast.cf_mod.misc.data_tools import BaseDataset, paths_for_dataset
 from fast.cf_mod.misc.data_tools import BaseDataset
+from fast.cf_mod.misc.utils import get_infos, resize3d, graph_from_graphdef, pre_img_arr_1ch
+from fast.cf_mod.misc.my_metrics import dice_coef_pat
 from utils.data_proc import paths_from_data
 # TODO: unify the process of building models
 from fast.ASEUNet import SEResUNet
-
-# Older version eval import
-sys.path.insert(0, "/rdfs/fast/home/sunyingge/code/chenfeng")
-from misc.utils import get_infos, resize3d, graph_from_graphdef, pre_img_arr_1ch
-from misc.my_metrics import dice_coef_pat
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -57,15 +54,18 @@ def parse_args():
     # Eval mode related
     parser.add_argument("--model_file",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_2.ckpt"
-        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22.ckpt",
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_3.ckpt"
+        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22.ckpt",
         )
     parser.add_argument("--testset_dir", nargs='+',
-        default=["/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/normal_pneu_datasets",
-        "/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/covid_pneu_datasets"]
+        default=["/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/normal_pneu_datasets",
+        "/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/covid_pneu_datasets"]
+        # default=["/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Test_multicat_0519"]
         )
     parser.add_argument("--pkl_dir",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_2_res.pkl",
-        default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22_res.pkl",
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_3_res.pkl",
+        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22_res.pkl",
         )
     parser.add_argument("--thickness_thres", default=3.0)
 
@@ -87,6 +87,7 @@ class Args(object):
         # and when n_classes == 1. The actual number of classes will be this 
         # plus 1 (BG).
         self.n_classes = args.num_cls
+        self.cat_map = {"covid_pneu": 1, "common_pneu": 2}
         # self.n_channels = 2
         # self.initial_epoch = 0
         # self.global_step = 0
@@ -207,19 +208,23 @@ def evaluation(sess, args, training_args):
         info_paths += get_infos(folder)
     info_paths = sorted(info_paths, key=lambda info:info[0])
     all_result = []
-    do_paths = info_paths
     model = tf_model(args, training_args)
     saver = tf.train.Saver()
     saver.restore(sess, args.model_file)
-    pbar = tqdm(total=len(do_paths))
+    pbar = tqdm(total=len(info_paths))
     if os.path.exists(args.pkl_dir):
         input("Result file already exists. Press enter to \
             continue and overwrite it when inference is done...")
-    for num, info in enumerate(do_paths):
+    for num, info in enumerate(info_paths):
         img_file, lab_file = info[0:2]
+        if "normal_pneu" in img_file:
+            cls_id = 2
+        elif "covid_pneu" in img_file:
+            cls_id = 1
         try:
             img_ori,  lab_ori  = sitk.ReadImage(img_file, sitk.sitkFloat32), sitk.ReadImage(lab_file, sitk.sitkInt16)
             img_arr,  lab_arr  = sitk.GetArrayFromImage(img_ori), sitk.GetArrayFromImage(lab_ori)
+            # This converts all positive pixels to 1 regardless of their exact class
             lab_arr  = np.asarray(lab_arr > 0, dtype=np.uint8)
         except:
             continue
@@ -236,19 +241,15 @@ def evaluation(sess, args, training_args):
         step = depth//segs + 1 if depth%segs != 0 else depth//segs
         for ii in range(step):
             if ii != step-1:
-                if False: print("stage1")
-                if False: print(dis_arr[ii*segs:(ii+1)*segs, ...].shape)
                 pp = sess.run(model.pred, feed_dict={model.input_im: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
                 pp = 1/ (1 + np.exp(-pp))
                 pred_.append(pp)
             else:
-                if False: print("stage2")
-                if False: print(dis_arr[ii*segs:, ...].shape)
                 pp = sess.run(model.pred, feed_dict={model.input_im: dis_arr[ii*segs:, ...]}) #[0]
                 pp = 1/ (1 + np.exp(-pp))
                 pred_.append(pp)
         dis_prd = np.concatenate(pred_, axis=0)
-        dis_prd = (dis_prd > 0.5)
+        dis_prd = np.argmax(dis_prd, -1) == cls_id
         dis_prd = resize3d(dis_prd.astype(np.uint8), ori_shape, interpolation=cv2.INTER_NEAREST)
         score = dice_coef_pat(dis_prd, lab_arr)
         if score < 0.3:

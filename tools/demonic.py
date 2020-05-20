@@ -25,23 +25,24 @@ def gen_slice_dataset(data_dir, data_dir_post, out_dir, multicat, discard_neg,
 def parse_args():
     parser = argparse.ArgumentParser("")
     parser.add_argument("--data_dir",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/0508/Train",
+        # default="/rdfs/fast/home/sunyingge/data/COV_19/0508/Train",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/0508/Val/"
+        default="/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519",
         )
     parser.add_argument("--data_dir_postfix", nargs='+', 
-        help="""This is added to the ends of both '--data_dir' and
-        '--out_dir'.""",
+        help="""This is added to the ends of both "--data_dir" and "--out_dir".""",
         # default=["batch_0513", "batch_0514", "batch_0515"],
         # default=["batch_0505", "batch_0507", "batch_0508", "batch_0509", "batch_0510", 
         #     "batch_0511", "batch_0513", "batch_0514", "batch_0515"]
-        default=["batch_0505", "batch_0508", "batch_0509", "batch_0510", "batch_0511", 
-            "batch_0513", "batch_0514", "batch_0515"]
-            )
+        # default=["batch_0505", "batch_0508", "batch_0509", "batch_0510", "batch_0511", 
+        #     "batch_0513", "batch_0514", "batch_0515"]
+        default=[""]
+        )
     parser.add_argument("--out_dir",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0516",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519",
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Test_multicat_0519",
     )
-    parser.add_argument("--thickness_thres", default=3.0)
+    # parser.add_argument("--thickness_thres", default=3.0)
     parser.add_argument("--multicat", action="store_true", default=True)
     parser.add_argument("--discard_neg", action="store_true", default=True)
     return parser.parse_args()

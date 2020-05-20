@@ -31,10 +31,12 @@ You can think of this as running the first SSH and tell it to run another SSH on
 
 ## Linux Cheatsheet
 * Count number of files recursively: `find DIR_NAME -type f | wc -l`
+* `find /rdfs/fast/home/sunyingge/anaconda3/envs/tf14/lib/python3.6/site-packages/tensorflow/ -name tf_upgrade_v2*`
 # Ideas
 * Regularization: weight decay/l2 norm loss  
 tensorflow.org/guide/migrate
 * Use the upgrade script to only upgrade the model module and write a new pipeline?
+* Loss weight to speed up training?
 
 # Note
 # Garage
