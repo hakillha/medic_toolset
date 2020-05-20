@@ -10,15 +10,15 @@ from tqdm import tqdm
 
 # When the TF module is large enough create a seperate folder for it
 # TODO: Change working directory to point to folder of this script
-sys.path.insert(0, "..") 
+sys.path.insert(0, "../../..") 
 # from fast.cf_mod.misc.data_tools import BaseDataset, paths_for_dataset
 from fast.cf_mod.misc.data_tools import BaseDataset
 from fast.cf_mod.misc.utils import get_infos, resize3d, graph_from_graphdef, pre_img_arr_1ch
 from fast.cf_mod.misc.my_metrics import dice_coef_pat
-from utils.data_proc import paths_from_data
-from utils.config import Config
 # TODO: unify the process of building models
 from fast.ASEUNet import SEResUNet
+from fw_neutral.utils.data_proc import paths_from_data
+from fw_neutral.utils.config import Config
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -57,7 +57,7 @@ def parse_args():
     # Eval mode related
     parser.add_argument("--model_file",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_2.ckpt"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_3.ckpt"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_6.ckpt"
         # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22.ckpt",
         )
     parser.add_argument("--testset_dir", nargs='+',
@@ -67,7 +67,7 @@ def parse_args():
         )
     parser.add_argument("--pkl_dir",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_2_res.pkl",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_3_res.pkl",
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_6_res.pkl",
         # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22_res.pkl",
         )
     parser.add_argument("--thickness_thres", default=3.0)
@@ -95,11 +95,13 @@ class tf_model():
                 self.input_ann = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
                 self.ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
             else:
-                self.input_ann = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
                 if cfg.multiclass_loss == "softmax":
-                    pass
-                elif cfg.multiclass_loss == "sigmoid":
+                    self.input_ann = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
                     self.ce = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
+                elif cfg.multiclass_loss == "sigmoid":
+                    self.input_ann = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], cfg.num_class + 1))
+                    self.ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
+                    
             self.loss = tf.reduce_mean(self.ce)
             global_step = tf.Variable(0, trainable=False)
             assert num_batches, "Please provide batch size for training mode!"
@@ -154,7 +156,17 @@ def train(sess, args, cfg):
             for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
                 data_list.append(train_dataset[j])
             data_ar = np.array(data_list)
-            im_ar, ann_ar = data_ar[:,0,:,:,:], data_ar[:,1,:,:,:] if cfg.num_class == 1 else data_ar[:,1,:,:,0]
+            im_ar = data_ar[:,0,:,:,:]
+            if cfg.num_class == 1:
+                ann_ar = data_ar[:,1,:,:,:]
+            elif cfg.multiclass_loss == "softmax":
+                ann_ar = data_ar[:,1,:,:,0]
+            elif cfg.multiclass_loss == "sigmoid":
+                ann_ar = np.repeat(data_ar[:,1,:,:,:], cfg.num_class + 1, -1)
+                all_cls_ids = np.ones(shape=ann_ar.shape)
+                for i in range(cfg.num_class + 1):
+                    all_cls_ids[...,i] = all_cls_ids[...,i] * i
+                ann_ar = ann_ar == all_cls_ids
 
             ret_loss, ret_pred, ret_ce, _ = sess.run([model.loss, model.pred, model.ce, model.optimizer],
                 feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
@@ -233,7 +245,11 @@ def evaluation(sess, args, cfg):
                 pp = 1/ (1 + np.exp(-pp))
                 pred_.append(pp)
         dis_prd = np.concatenate(pred_, axis=0)
-        dis_prd = np.argmax(dis_prd, -1) == cls_id
+        # add the og version in
+        if cfg.num_class == 1:
+            dis_prd = dis_prd > 0.5
+        else:
+            dis_prd = np.argmax(dis_prd, -1) == cls_id
         dis_prd = resize3d(dis_prd.astype(np.uint8), ori_shape, interpolation=cv2.INTER_NEAREST)
         score = dice_coef_pat(dis_prd, lab_arr)
         if score < 0.3:

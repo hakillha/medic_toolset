@@ -8,5 +8,5 @@
         "epoch_to_drop_lr": [4, 8],
         "lr": [1e-3, 5e-4, 25e-5]
     },
-    "multiclass_loss": "softmax"
+    "multiclass_loss": "sigmoid"
 }
