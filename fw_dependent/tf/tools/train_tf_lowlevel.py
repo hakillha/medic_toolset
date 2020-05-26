@@ -1,4 +1,4 @@
-import argparse, os, sys, time
+import argparse, logging, os, sys, time
 import cv2, pickle, shutil
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,7 +16,7 @@ from fast.cf_mod.misc.data_tools import BaseDataset
 from fast.cf_mod.misc.utils import get_infos, resize3d, graph_from_graphdef, pre_img_arr_1ch
 from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
-from fast.ASEUNet import SEResUNet
+from fw_dependent.tf.model.tf_layers import tf_model
 from fw_neutral.utils.data_proc import paths_from_data
 from fw_neutral.utils.config import Config
 
@@ -35,13 +35,12 @@ def parse_args():
     parser.add_argument("gpu", help="Choose GPU.")
     parser.add_argument("config", help="Config file.")
     
-    # TODO: add an automatically generated (time-related) postfix
+    # Training mode related
     parser.add_argument("-o", "--output_dir",
         help="""You only need to provide a prefix which will be automatically be 
-            complemented by time to keep things distincive easily.""",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_")
-
-    # Training mode related
+            complemented by time to keep things distincive easily. This will be ignored
+            when resuming from a checkpoint.""",
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_")
     parser.add_argument("--train_dir", help="Training set directory.",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0518/",
         default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
@@ -51,23 +50,28 @@ def parse_args():
     parser.add_argument("--resume", help="Checkpoint file to resume from.",
         # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_11.ckpt")
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_1.ckpt"
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0520_1521/epoch_1.ckpt"
     )
     parser.add_argument("--max_to_keep", default=30)
+    parser.add_argument("--num_retry", default=60)
+    parser.add_argument("--retry_waittime", default=120)
+    parser.add_argument("--eval_while_train", action="store_true", default=True,
+        help="""Need to provide "--testset_dir" for this.""")
 
     # Eval mode related
-    parser.add_argument("--model_file",
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_2.ckpt"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_6.ckpt"
-        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22.ckpt",
-        )
     parser.add_argument("--testset_dir", nargs='+',
         default=["/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/normal_pneu_datasets",
         "/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/covid_pneu_datasets"]
         # default=["/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Test_multicat_0519"]
         )
+    parser.add_argument("--model_file",
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_11.ckpt"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0522_1708/epoch_8.ckpt"
+        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22.ckpt",
+        )
     parser.add_argument("--pkl_dir",
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_2_res.pkl",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_6_res.pkl",
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_11_res.pkl",
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0522_1708/epoch_8_res.pkl",
         # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22_res.pkl",
         )
     parser.add_argument("--thickness_thres", default=3.0)
@@ -80,35 +84,6 @@ def parse_args():
     #     "--output_dir",
     #     "/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/"
     # ])
-
-class tf_model():
-    def __init__(self, args, cfg, num_batches=None):
-        self.input_im = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
-        if cfg.num_class == 1:
-            self.pred = SEResUNet(self.input_im, num_classes=1, reduction=8, name_scope="SEResUNet")
-        else:
-            self.pred = SEResUNet(self.input_im, num_classes=cfg.num_class + 1, reduction=8, name_scope="SEResUNet")
-        
-        if args.mode == "train":
-            if cfg.num_class == 1:
-                # For some reason float32 is working
-                self.input_ann = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
-                self.ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
-            else:
-                if cfg.multiclass_loss == "softmax":
-                    self.input_ann = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
-                    self.ce = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
-                elif cfg.multiclass_loss == "sigmoid":
-                    self.input_ann = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], cfg.num_class + 1))
-                    self.ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=self.input_ann, logits=self.pred)
-                    
-            self.loss = tf.reduce_mean(self.ce)
-            global_step = tf.Variable(0, trainable=False)
-            assert num_batches, "Please provide batch size for training mode!"
-            steps = [num_batches * epoch_step for epoch_step in cfg.optimizer["epoch_to_drop_lr"]]
-            print(f"Steps to drop LR: {steps}")
-            learning_rate = tf.train.piecewise_constant(global_step, steps, cfg.optimizer["lr"])
-            self.optimizer = tf.train.AdamOptimizer(learning_rate).minimize(self.loss, global_step=global_step)
 
 def ini_training_set(args, cfg):
     print("==>>Training set: ")
@@ -133,13 +108,27 @@ def train(sess, args, cfg):
     if args.resume:
         output_dir = os.path.dirname(args.resume)
     else:
-        output_dir = args.output_dir + time.strftime("%m%d_%H%M", time.localtime())
-        if not os.path.exists(output_dir):
+        output_dir = args.output_dir + time.strftime("%m%d_%H%M_%S", time.localtime())
+        if os.path.exists(output_dir):
+            input("The output directory already exists, please wait a moment and restart...")
+            # print("The output directory already exists, please wait a moment and restart...")
+            # sys.exit()
+        else:
             os.makedirs(output_dir)
-        shutil.copy(args.config, output_dir)
+        if not os.path.exists(pj(output_dir, os.path.basename(args.config))):
+            shutil.copy(args.config, output_dir)
+    logging.basicConfig(level=logging.DEBUG,
+        format="%(asctime)s %(message)s",
+        datefmt="%m-%d %H:%M",
+        filename=pj(output_dir, "training.log"),
+        filemode="a")
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(logging.Formatter("%(message)s"))
+    logging.getLogger("").addHandler(console)
     saver = tf.train.Saver(max_to_keep=args.max_to_keep)
     num_para = np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()])
-    print("Total number of trainable parameters: {:.3}M.\n".format(float(num_para)/1e6))
+    logging.info("Total number of trainable parameters: {:.3}M.\n".format(float(num_para)/1e6))
     if args.resume:
         saver.restore(sess, args.resume)
         # This needs to be changed if the naming rule changes
@@ -148,33 +137,47 @@ def train(sess, args, cfg):
         sess.run(tf.global_variables_initializer())
         epoch = 0
     while epoch < cfg.max_epoch:
-        print(f"Epoch {epoch + 1}\n")
+        logging.info(f"Epoch {epoch + 1}\n")
         for i in range(num_batches):
-        # for i in range(10):
-            print(f"Epoch progress: {i + 1} / {num_batches}")
+        # for i in range(10):#
             data_list = []
             for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
                 data_list.append(train_dataset[j])
             data_ar = np.array(data_list)
             im_ar = data_ar[:,0,:,:,:]
             if cfg.num_class == 1:
-                ann_ar = data_ar[:,1,:,:,:]
-            elif cfg.multiclass_loss == "softmax":
+                # to make it compatible with mutlicls label
+                ann_ar = data_ar[:,1,:,:,:] > 0 
+            elif cfg.loss == "softmax":
                 ann_ar = data_ar[:,1,:,:,0]
-            elif cfg.multiclass_loss == "sigmoid":
+            elif cfg.loss == "sigmoid":
                 ann_ar = np.repeat(data_ar[:,1,:,:,:], cfg.num_class + 1, -1)
                 all_cls_ids = np.ones(shape=ann_ar.shape)
                 for i in range(cfg.num_class + 1):
                     all_cls_ids[...,i] = all_cls_ids[...,i] * i
                 ann_ar = ann_ar == all_cls_ids
 
-            ret_loss, ret_pred, ret_ce, _ = sess.run([model.loss, model.pred, model.ce, model.optimizer],
+            ret_loss, ret_pred, _ = sess.run([model.loss, model.pred, model.optimizer],
                 feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
-            print(ret_loss)
-        saver.save(sess, pj(output_dir, f"epoch_{epoch + 1}.ckpt"))
+            # if i % 5 == 0:
+            logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss}")
+        for _ in range(args.num_retry):
+            try:
+                ckpt_dir = pj(output_dir, f"epoch_{epoch + 1}.ckpt")
+                saver.save(sess, ckpt_dir)
+                # a = np.random.uniform(size=1)#
+                # if a[0] < 0.9:#
+                #     raise Exception("Hi!")#
+                break
+            except:
+                logging.warning("Failed to save checkpoint. Retry after 2 minutes...")
+                time.sleep(args.retry_waittime)
+                # time.sleep(10)#
+        if args.eval_while_train:
+            evaluation(sess, args, cfg, model, ckpt_dir.replace(".ckpt", "_res.pkl"), log=True)
         epoch += 1
 
-def show_dice(all_res):
+def show_dice(all_res, log=False):
     stats = defaultdict(list)
     for res in all_res:
         if 'covid_pneu_datasets' in res[0]:
@@ -196,27 +199,33 @@ def show_dice(all_res):
                 stats['thin'].append(res[1])
                 stats['normal_thin'].append(res[1])
     for key in stats:
-        print(f"{key}: {np.mean(np.array(stats[key]))}")
+        if log:
+            logging.info(f"{key}: {np.mean(np.array(stats[key]))}")
+        else:
+            print(f"{key}: {np.mean(np.array(stats[key]))}")
 
-def evaluation(sess, args, cfg):
+def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
+    """
+        Args:
+            model: For eval during training.
+    """
     info_paths = []
     for folder in args.testset_dir:
         info_paths += get_infos(folder)
     info_paths = sorted(info_paths, key=lambda info:info[0])
     all_result = []
-    model = tf_model(args, cfg)
-    saver = tf.train.Saver()
-    saver.restore(sess, args.model_file)
+    if not model:
+        model = tf_model(args, cfg)
+        saver = tf.train.Saver()
+        saver.restore(sess, args.model_file)
+    else:
+        args.pkl_dir = pkl_dir
     pbar = tqdm(total=len(info_paths))
     if os.path.exists(args.pkl_dir):
         input("Result file already exists. Press enter to \
             continue and overwrite it when inference is done...")
     for num, info in enumerate(info_paths):
         img_file, lab_file = info[0:2]
-        if "normal_pneu" in img_file:
-            cls_id = 2
-        elif "covid_pneu" in img_file:
-            cls_id = 1
         try:
             img_ori,  lab_ori  = sitk.ReadImage(img_file, sitk.sitkFloat32), sitk.ReadImage(lab_file, sitk.sitkInt16)
             img_arr,  lab_arr  = sitk.GetArrayFromImage(img_ori), sitk.GetArrayFromImage(lab_ori)
@@ -249,17 +258,25 @@ def evaluation(sess, args, cfg):
         if cfg.num_class == 1:
             dis_prd = dis_prd > 0.5
         else:
+            if "normal_pneu" in img_file:
+                cls_id = 2
+            elif "covid_pneu" in img_file:
+                cls_id = 1
             dis_prd = np.argmax(dis_prd, -1) == cls_id
         dis_prd = resize3d(dis_prd.astype(np.uint8), ori_shape, interpolation=cv2.INTER_NEAREST)
         score = dice_coef_pat(dis_prd, lab_arr)
         if score < 0.3:
-            print(os.path.dirname(lab_file))
-            print(score)
+            if log:
+                logging.info(os.path.dirname(lab_file))
+                logging.info(score)
+            else:
+                print(os.path.dirname(lab_file))
+                print(score)
         all_result.append([img_file, score, round(spacing[-1], 1)])
         pbar.update(1)
     pbar.close()
     pickle.dump(all_result, open(args.pkl_dir, "bw"))
-    show_dice(all_result)
+    show_dice(all_result, log=log)
 
 if __name__ == "__main__":
     args = parse_args()

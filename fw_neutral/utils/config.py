@@ -8,7 +8,7 @@ class Config():
         self.max_epoch = 40 # maximum number of epochs you can run
         self.num_class = 1
         self.optimizer = None
-        self.multiclass_loss = None
+        self.loss = None
 
     def load_from_json(self, cf_file):
         with open(cf_file) as f:
@@ -19,5 +19,12 @@ class Config():
         self.max_epoch = cf_dict["max_epoch"]
         self.num_class = cf_dict["num_class"]
         self.optimizer = cf_dict["optimizer"]
-        self.multiclass_loss = cf_dict["multiclass_loss"]
-        assert self.multiclass_loss in ["softmax", "sigmoid"]
+        if "multiclass_loss" in cf_dict.keys():
+            self.loss = cf_dict["multiclass_loss"]
+        else:
+            self.loss = cf_dict["loss"]
+        if self.num_class == 1:
+            assert self.loss in ["sigmoid", "hbloss_dice_focal", "generalized_dice_loss", "dice_loss", "focal",
+                "hbloss_dice_focal_v2", "hbloss_dice_ce"]
+        else:
+            assert self.loss in ["softmax", "sigmoid"]
