@@ -1,5 +1,7 @@
 import glob, os
 from os.path import join as pj
+import random
+random.seed(123)
 
 import numpy as np
 import pickle
@@ -40,7 +42,7 @@ def get_infos(root_dir, link="-", isprint=True):
     return get_paths 
 
 def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max_ct_1ch,
-        multicat, discard_neg):
+        multicat, discard_neg, norm_by_interval):
     im_file, anno_file = info_path
     # print(im_file)
     if "covid_pneu" in im_file:
@@ -58,10 +60,7 @@ def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max
         patient_id = im_file.split('/')[-2]
         im_np = sitk.GetArrayFromImage(sitk.ReadImage(im_file, sitk.sitkFloat32))
         ann_np = sitk.GetArrayFromImage(sitk.ReadImage(anno_file, sitk.sitkUInt16))
-        im_np = np.clip(im_np, min_ct_1ch, max_ct_1ch)
-        EPS = 1e-8
-        im_np = (im_np - np.amin(im_np) + EPS) / (np.amax(im_np) - np.amin(im_np) + EPS)
-        im_np = np.expand_dims(im_np, -1)
+        im_np = im_normalize(im_np, min_ct_1ch, max_ct_1ch, norm_by_interval)
         pos_index = ann_np >= 1
         if multicat:
             if condition_cat == "normal_pneu":
@@ -105,3 +104,55 @@ def paths_from_data(data_dir):
         if "pos" in root:
             sample_paths += glob.glob(pj(root, "*.pkl"))
     return sample_paths
+
+def im_normalize(im, min_ct_1ch, max_ct_1ch, norm_by_interval):
+    EPS = 1e-8
+    im = np.clip(im, min_ct_1ch, max_ct_1ch)
+    if norm_by_interval:
+        im = (im - min_ct_1ch + EPS) / (max_ct_1ch - min_ct_1ch + EPS)
+    else:
+        im = (im - np.amin(im) + EPS) / (np.amax(im) - np.amin(im) + EPS)
+    im = np.expand_dims(im, -1)
+    return im
+
+def preprocess(im, anno, cfg, training):
+    if cfg.preprocess["cropping"]:
+        im_above_thres = np.argwhere(im > cfg.preprocess["cropping_ct_thres"])
+        if len(im_above_thres):
+            center_y, center_x, _ = map(int, np.mean(im_above_thres, axis=0))
+        else:
+            center_y, center_x = im.shape[0] // 2, im.shape[1] // 2
+        if training:
+            randomness = cfg.preprocess["cropping_train_randomness"]
+            center_y += random.randint(-randomness, randomness)
+            center_x += random.randint(-randomness, randomness)
+        x1, x2 = center_x - cfg.im_size[0] // 2, center_x + cfg.im_size[0] // 2
+        y1, y2 = center_y - cfg.im_size[1] // 2, center_y + cfg.im_size[1] // 2
+        if x1 < 0:
+            x1, x2 = 0, cfg.im_size[0]
+        if y1 < 0:
+            y1, y2 = 0, cfg.im_size[1]
+        if x2 > im.shape[1]:
+            x1, x2 = im.shape[1] - cfg.im_size[0], im.shape[1]
+        if y2 > im.shape[0]:
+            y1, y2 = im.shape[0] - cfg.im_size[1], im.shape[0]
+        im = im[y1:y2,x1:x2]
+        if training:
+            anno = anno[y1:y2,x1:x2]
+            return im, np.expand_dims(anno, -1)
+        else:
+            return im, (x1, y1)
+    elif cfg.preprocess["resize"]:
+        im = cv2.resize(im, cfg.im_size, interpolation=cv2.INTER_LINEAR)
+        if training:
+            anno = cv2.resize(anno, cfg.im_size, interpolation=cv2.INTER_NEAREST)
+            return im, np.expand_dims(anno, -1)
+        else:
+            return im
+
+# For evaluation
+# def postprocess(pred, cfg, topleft_list=None):
+#     if cfg.preprocess["cropping"]:
+#         pass
+#     elif cfg.preprocess["resize"]:
+#         pass

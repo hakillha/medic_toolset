@@ -507,9 +507,9 @@ class BaseDataset():
                 self.paths = self.neg_paths
     def _get_data(self, i):
         file_dict = pickle.load(open(self.paths[i], "rb"))
-        img_ = file_dict[self.image_key]; lab_ = file_dict[self.mask_key]
-        img = cv2.resize(img_, self.img_size, interpolation=cv2.INTER_LINEAR)
-        lab = cv2.resize(lab_, self.img_size, interpolation=cv2.INTER_NEAREST)
+        img = file_dict[self.image_key]; lab = file_dict[self.mask_key]
+        # img = cv2.resize(img_, self.img_size, interpolation=cv2.INTER_LINEAR)
+        # lab = cv2.resize(lab_, self.img_size, interpolation=cv2.INTER_NEAREST)
 #         assert img.shape == lab.shape, "Assure The Same Shape"
         if self.preprocess:
             if False: print("do preprocess")
@@ -522,7 +522,6 @@ class BaseDataset():
             if False: print("do proprocess")
             sample = self.proprocess(image=img, mask=lab)
             img, lab = sample["image"], sample["mask"]
-        if img.ndim == 2: img = np.expand_dims(img, axis=-1); lab = np.expand_dims(lab, axis=-1)
 
         return img.astype(np.float32), lab.astype(np.uint8)
 

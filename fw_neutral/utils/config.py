@@ -4,11 +4,13 @@ class Config():
     def __init__(self):
         # default values
         self.batch_size = 32
-        self.im_size = (256, 256)
+        self.im_size = (256, 256) # w, h
         self.max_epoch = 40 # maximum number of epochs you can run
         self.num_class = 1
         self.optimizer = None
         self.loss = None
+        self.eval = {"ct_interval": [-1400, 800], "norm_by_interval": False}
+        self.preprocess = None
 
     def load_from_json(self, cf_file):
         with open(cf_file) as f:
@@ -28,3 +30,12 @@ class Config():
                 "hbloss_dice_focal_v2", "hbloss_dice_ce"]
         else:
             assert self.loss in ["softmax", "sigmoid"]
+        # use the default setting which is the old setting
+        # for the old cfg files where eval configuration is missing
+        # new cfg files have to overwrite this to work correctly
+        if "eval" in cf_dict.keys():
+            self.eval = cf_dict["eval"]
+        # this should be a list in the json file 
+        # indicating the order of preprocessing?
+        if "preprocess" in cf_dict.keys():
+            self.preprocess = cf_dict["preprocess"]

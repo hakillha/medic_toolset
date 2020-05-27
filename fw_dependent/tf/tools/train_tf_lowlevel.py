@@ -13,11 +13,11 @@ from tqdm import tqdm
 sys.path.insert(0, "../../..") 
 # from fast.cf_mod.misc.data_tools import BaseDataset, paths_for_dataset
 from fast.cf_mod.misc.data_tools import BaseDataset
-from fast.cf_mod.misc.utils import get_infos, resize3d, graph_from_graphdef, pre_img_arr_1ch
+from fast.cf_mod.misc.utils import get_infos, resize3d, graph_from_graphdef
 from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
-from fw_neutral.utils.data_proc import paths_from_data
+from fw_neutral.utils.data_proc import paths_from_data, im_normalize, preprocess
 from fw_neutral.utils.config import Config
 
 def parse_args():
@@ -42,8 +42,8 @@ def parse_args():
             when resuming from a checkpoint.""",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_")
     parser.add_argument("--train_dir", help="Training set directory.",
-        # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0518/",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
+        # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0526/",
         )
     parser.add_argument("--batch_size", type=int, default=32,
         help="Provided here to enable easy overwritting (not supported yet).")
@@ -52,9 +52,9 @@ def parse_args():
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_1.ckpt"
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0520_1521/epoch_1.ckpt"
     )
-    parser.add_argument("--max_to_keep", default=30)
+    parser.add_argument("--max_to_keep", default=30, help="Max number of checkpoint files to keep.")
     parser.add_argument("--num_retry", default=60)
-    parser.add_argument("--retry_waittime", default=120)
+    parser.add_argument("--retry_waittime", default=120, help="In seconds.")
     parser.add_argument("--eval_while_train", action="store_true", default=True,
         help="""Need to provide "--testset_dir" for this.""")
 
@@ -75,6 +75,8 @@ def parse_args():
         # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22_res.pkl",
         )
     parser.add_argument("--thickness_thres", default=3.0)
+
+    parser.add_argument("--debug", action="store_true")
 
     return parser.parse_args()
     # So that this works with jupyter
@@ -108,11 +110,15 @@ def train(sess, args, cfg):
     if args.resume:
         output_dir = os.path.dirname(args.resume)
     else:
-        output_dir = args.output_dir + time.strftime("%m%d_%H%M_%S", time.localtime())
+        if os.path.exists(args.output_dir):
+            output_dir = args.output_dir
+        else:
+            output_dir = args.output_dir + time.strftime("%m%d_%H%M_%S", time.localtime())
         if os.path.exists(output_dir):
-            input("The output directory already exists, please wait a moment and restart...")
-            # print("The output directory already exists, please wait a moment and restart...")
-            # sys.exit()
+            if not args.debug:
+                input("The output directory already exists, please wait a moment and restart...")
+                # print("The output directory already exists, please wait a moment and restart...")
+                # sys.exit()
         else:
             os.makedirs(output_dir)
         if not os.path.exists(pj(output_dir, os.path.basename(args.config))):
@@ -138,11 +144,12 @@ def train(sess, args, cfg):
         epoch = 0
     while epoch < cfg.max_epoch:
         logging.info(f"Epoch {epoch + 1}\n")
+        num_batches = 10 if args.debug else num_batches
         for i in range(num_batches):
-        # for i in range(10):#
             data_list = []
             for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
-                data_list.append(train_dataset[j])
+                im_ar, ann_ar = preprocess(train_dataset[j][0], train_dataset[j][1], cfg, True)
+                data_list.append((im_ar, ann_ar))
             data_ar = np.array(data_list)
             im_ar = data_ar[:,0,:,:,:]
             if cfg.num_class == 1:
@@ -156,7 +163,6 @@ def train(sess, args, cfg):
                 for i in range(cfg.num_class + 1):
                     all_cls_ids[...,i] = all_cls_ids[...,i] * i
                 ann_ar = ann_ar == all_cls_ids
-
             ret_loss, ret_pred, _ = sess.run([model.loss, model.pred, model.optimizer],
                 feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
             # if i % 5 == 0:
@@ -235,10 +241,19 @@ def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
             continue
         depth, ori_shape = img_arr.shape[0], img_arr.shape[1:]
         spacing = img_ori.GetSpacing()
-        dis_min_ch1 = -1400. ; dis_max_ch1 = 800. 
-        dis_arr = pre_img_arr_1ch(img_arr, min_ch1=dis_min_ch1, max_ch1=dis_max_ch1)
-        dis_arr = resize3d(dis_arr, (256, 256), interpolation=cv2.INTER_LINEAR)
-        dis_arr = np.expand_dims(dis_arr, axis=-1)
+        dis_arr = im_normalize(img_arr, cfg.eval["ct_interval"][0], cfg.eval["ct_interval"][1], 
+            cfg.eval["norm_by_interval"])
+        # dis_arr = resize3d(dis_arr, cfg.im_size, interpolation=cv2.INTER_LINEAR)
+        im_stack = []
+        topleft_list = [] if cfg.preprocess["cropping"] else None
+        for i in range(dis_arr.shape[0]):
+            res = preprocess(dis_arr[i,...], None, cfg, False)
+            if cfg.preprocess["cropping"]:
+                im_stack.append(res[0])
+                topleft_list.append(res[1])
+            elif cfg.preprocess["resize"]:
+                im_stack.append(res)
+        dis_arr = np.array(im_stack)
         
         pred_ = []
         segs = cfg.batch_size
@@ -247,12 +262,10 @@ def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
         for ii in range(step):
             if ii != step-1:
                 pp = sess.run(model.pred, feed_dict={model.input_im: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
-                pp = 1/ (1 + np.exp(-pp))
-                pred_.append(pp)
             else:
                 pp = sess.run(model.pred, feed_dict={model.input_im: dis_arr[ii*segs:, ...]}) #[0]
-                pp = 1/ (1 + np.exp(-pp))
-                pred_.append(pp)
+            pp = 1/ (1 + np.exp(-pp)) # this only works for single class
+            pred_.append(pp)
         dis_prd = np.concatenate(pred_, axis=0)
         # add the og version in
         if cfg.num_class == 1:
@@ -263,7 +276,18 @@ def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
             elif "covid_pneu" in img_file:
                 cls_id = 1
             dis_prd = np.argmax(dis_prd, -1) == cls_id
-        dis_prd = resize3d(dis_prd.astype(np.uint8), ori_shape, interpolation=cv2.INTER_NEAREST)
+        # dis_prd = resize3d(dis_prd.astype(np.uint8), ori_shape, interpolation=cv2.INTER_NEAREST)
+        # insert postprocessing here
+        # dis_prd = np.array([postprocess(dis_prd[i,...], cfg, topleft_list) for i in range(dis_prd.shape[0])])
+        pred_stack = []
+        for i in range(dis_prd.shape[0]):
+            if cfg.preprocess["cropping"]:
+                padded_res = np.zeros(shape=ori_shape[::-1])
+                padded_res[topleft_list[i][1]:topleft_list[i][1] + cfg.im_size[0],topleft_list[i][0]:topleft_list[i][0] + cfg.im_size[1]] = dis_prd[i,...][0]
+                pred_stack.append(padded_res)
+            elif cfg.preprocess["resize"]:
+                pred_stack.append(cv2.resize(dis_prd[i,...], ori_shape[::-1], interpolation=interpolation))
+        dis_prd = np.array(pred_stack)
         score = dice_coef_pat(dis_prd, lab_arr)
         if score < 0.3:
             if log:

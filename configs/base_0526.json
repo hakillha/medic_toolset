@@ -3,10 +3,14 @@
     "im_size": [256, 256],
     "max_epoch": 40,
     "num_class": 1,
-    "optimizer":{
+    "optimizer": {
         "name": "Adam",
         "epoch_to_drop_lr": [4, 8],
         "lr": [1e-3, 5e-4, 25e-5]
     },
-    "loss": "hbloss_dice_focal"
+    "loss": "dice_loss",
+    "eval": {
+        "ct_interval": [-1200, 1800],
+        "norm_by_interval": true
+    }
 }
