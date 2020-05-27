@@ -10,7 +10,10 @@ class Config():
         self.optimizer = None
         self.loss = None
         self.eval = {"ct_interval": [-1400, 800], "norm_by_interval": False}
-        self.preprocess = None
+        self.preprocess = {
+            "cropping": False,
+            "resize": True
+            }
 
     def load_from_json(self, cf_file):
         with open(cf_file) as f:

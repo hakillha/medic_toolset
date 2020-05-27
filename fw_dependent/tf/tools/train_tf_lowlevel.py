@@ -13,7 +13,7 @@ from tqdm import tqdm
 sys.path.insert(0, "../../..") 
 # from fast.cf_mod.misc.data_tools import BaseDataset, paths_for_dataset
 from fast.cf_mod.misc.data_tools import BaseDataset
-from fast.cf_mod.misc.utils import get_infos, resize3d, graph_from_graphdef
+from fast.cf_mod.misc.utils import get_infos
 from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
@@ -42,16 +42,14 @@ def parse_args():
             when resuming from a checkpoint.""",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_")
     parser.add_argument("--train_dir", help="Training set directory.",
-        # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0526/",
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
+        # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0526/",
         )
     parser.add_argument("--batch_size", type=int, default=32,
         help="Provided here to enable easy overwritting (not supported yet).")
     parser.add_argument("--resume", help="Checkpoint file to resume from.",
-        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_11.ckpt")
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_1.ckpt"
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0520_1521/epoch_1.ckpt"
-    )
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
+        )
     parser.add_argument("--max_to_keep", default=30, help="Max number of checkpoint files to keep.")
     parser.add_argument("--num_retry", default=60)
     parser.add_argument("--retry_waittime", default=120, help="In seconds.")
@@ -62,17 +60,14 @@ def parse_args():
     parser.add_argument("--testset_dir", nargs='+',
         default=["/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/normal_pneu_datasets",
         "/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/covid_pneu_datasets"]
-        # default=["/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Test_multicat_0519"]
         )
     parser.add_argument("--model_file",
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_11.ckpt"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0522_1708/epoch_8.ckpt"
-        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22.ckpt",
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9.ckpt"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
         )
     parser.add_argument("--pkl_dir",
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_multicat_0518/SEResUNET_0518_1902/epoch_11_res.pkl",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0522_1708/epoch_8_res.pkl",
-        # default="/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/newf/epoch_22_res.pkl",
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9_res.pkl",
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3_res.pkl"
         )
     parser.add_argument("--thickness_thres", default=3.0)
 
@@ -283,10 +278,10 @@ def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
         for i in range(dis_prd.shape[0]):
             if cfg.preprocess["cropping"]:
                 padded_res = np.zeros(shape=ori_shape[::-1])
-                padded_res[topleft_list[i][1]:topleft_list[i][1] + cfg.im_size[0],topleft_list[i][0]:topleft_list[i][0] + cfg.im_size[1]] = dis_prd[i,...][0]
+                padded_res[topleft_list[i][1]:topleft_list[i][1] + cfg.im_size[0],topleft_list[i][0]:topleft_list[i][0] + cfg.im_size[1]] = dis_prd[i,:,:,0]
                 pred_stack.append(padded_res)
             elif cfg.preprocess["resize"]:
-                pred_stack.append(cv2.resize(dis_prd[i,...], ori_shape[::-1], interpolation=interpolation))
+                pred_stack.append(cv2.resize(dis_prd[i,:,:,0].astype(np.float32), ori_shape[::-1], interpolation=cv2.INTER_NEAREST))
         dis_prd = np.array(pred_stack)
         score = dice_coef_pat(dis_prd, lab_arr)
         if score < 0.3:

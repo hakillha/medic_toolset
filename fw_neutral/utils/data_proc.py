@@ -1,10 +1,10 @@
-import glob, os
+import glob, os, pickle
 from os.path import join as pj
 import random
 random.seed(123)
 
+import cv2
 import numpy as np
-import pickle
 import SimpleITK as sitk
 
 EPS = 1.0e-8
@@ -146,9 +146,9 @@ def preprocess(im, anno, cfg, training):
         im = cv2.resize(im, cfg.im_size, interpolation=cv2.INTER_LINEAR)
         if training:
             anno = cv2.resize(anno, cfg.im_size, interpolation=cv2.INTER_NEAREST)
-            return im, np.expand_dims(anno, -1)
+            return np.expand_dims(im, -1), np.expand_dims(anno, -1)
         else:
-            return im
+            return np.expand_dims(im, -1)
 
 # For evaluation
 # def postprocess(pred, cfg, topleft_list=None):

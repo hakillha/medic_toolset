@@ -20,7 +20,8 @@ TODO: Add a specific name to ease the lookup for the input/output tensors.
 * Check files integrity and shape consistency between images and annoataions.
 
 # Useful Skills/Tricks
-* `ssh -L 8080:localhost:8180 sunyingge@172.17.128.236 ssh -N -L 8180:localhost:8080 node2`  
+* `jupyter notebook --no-browser --port=8080`  
+`ssh -L 8080:localhost:8180 sunyingge@172.17.128.236 ssh -N -L 8180:localhost:8080 node1`  
 You can think of this as running the first SSH and tell it to run another SSH on the server immediately after login. `8080:localhost:8180` is like address/port assigning (`8080=localhost:8180`). That is, your local 8080 port now points to the 8180 port of the remote machine so when you chain them together the local `8080` port is basically `localhost:localhost:8080`. The `-N` is basically equvalent telling SSH to connect but do nothing more and since you tell the first SSH to run another SSH client, only the second SSH command should have the `-N` option enabled.
 * `tmux`, a particularly useful tool when you are working on a server, look it up.
 * Usefull snippet:  
@@ -28,10 +29,12 @@ You can think of this as running the first SSH and tell it to run another SSH on
     if os.path.exists(args.pkl_dir):
         input("Result file already exists. Press enter to continue and overwrite it...")
     ```
+* `%matplotlib inline` - The magic.  
+`%matplotlib notebook` This is not as recommended since it can cause weird ass issues.
 
 ## Linux Cheatsheet
 * Count number of files recursively: `find DIR_NAME -type f | wc -l`
-* `find /rdfs/fast/home/sunyingge/anaconda3/envs/tf14/lib/python3.6/site-packages/tensorflow/ -name tf_upgrade_v2*`
+* Search: `find /rdfs/fast/home/sunyingge/anaconda3/envs/tf14/lib/python3.6/site-packages/tensorflow/ -name tf_upgrade_v2*`
 # Ideas
 * Regularization: weight decay/l2 norm loss  
 tensorflow.org/guide/migrate

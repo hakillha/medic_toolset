@@ -1,6 +1,6 @@
 {
-    "batch_size": 32,
-    "im_size": [256, 256],
+    "batch_size": 12,
+    "im_size": [384, 384],
     "max_epoch": 40,
     "num_class": 1,
     "optimizer": {
