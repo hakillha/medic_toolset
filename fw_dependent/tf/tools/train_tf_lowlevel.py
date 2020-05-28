@@ -32,8 +32,9 @@ def parse_args():
             "--pkl_dir": Output.
         """)
     parser.add_argument("mode", choices=["train", "eval"])
-    parser.add_argument("gpu", help="Choose GPU.")
     parser.add_argument("config", help="Config file.")
+    parser.add_argument("--gpu", help="Choose GPU.")
+    parser.add_argument("--gpus_to_use", nargs='+')
     
     # Training mode related
     parser.add_argument("-o", "--output_dir",
@@ -101,7 +102,7 @@ def ini_training_set(args, cfg):
 def train(sess, args, cfg):
     train_dataset = ini_training_set(args, cfg)
     num_batches = len(train_dataset) // cfg.batch_size
-    model = tf_model(args, cfg, num_batches)
+    model = tf_model(args, cfg, args.gpus_to_use, num_batches)
     if args.resume:
         output_dir = os.path.dirname(args.resume)
     else:
@@ -158,7 +159,7 @@ def train(sess, args, cfg):
                 for i in range(cfg.num_class + 1):
                     all_cls_ids[...,i] = all_cls_ids[...,i] * i
                 ann_ar = ann_ar == all_cls_ids
-            ret_loss, ret_pred, _ = sess.run([model.loss, model.pred, model.optimizer],
+            ret_loss, _ = sess.run([model.loss, model.opt_op],
                 feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
             # if i % 5 == 0:
             logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss}")
@@ -174,7 +175,7 @@ def train(sess, args, cfg):
                 logging.warning("Failed to save checkpoint. Retry after 2 minutes...")
                 time.sleep(args.retry_waittime)
                 # time.sleep(10)#
-        if args.eval_while_train:
+        if args.eval_while_train and not args.gpus_to_use:
             evaluation(sess, args, cfg, model, ckpt_dir.replace(".ckpt", "_res.pkl"), log=True)
         epoch += 1
 
@@ -299,7 +300,7 @@ def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
 
 if __name__ == "__main__":
     args = parse_args()
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu if args.gpu else ",".join(args.gpus_to_use)
     cfg = Config()
     cfg.load_from_json(args.config)
     config = tf.ConfigProto(allow_soft_placement=True)

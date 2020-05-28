@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 def GroupNorm(x,name_scope,group=8,esp=1e-5):
-    with tf.variable_scope(name_scope,reuse=tf.AUTO_REUSE):
+    with tf.variable_scope(name_scope, reuse=tf.AUTO_REUSE):
         # tranpose: [bs,h,w,c] to [bs,c,h,w] 
         x = tf.transpose(x,[0,3,1,2])
         N,C,H,W = x.get_shape().as_list()
