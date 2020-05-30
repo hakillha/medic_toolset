@@ -125,7 +125,10 @@ class tf_model():
             im_split = tf.split(self.input_im, num_gpus, 0)
             ann_split = tf.split(self.input_ann, num_gpus, 0)
             tower_grads, loss_list = [], []
-            with tf.variable_scope(tf.get_variable_scope()):
+            # Need this variable scope to make sure variables are given names 
+            # to enable reuse, probably for build_loss()?
+            # It's more like setting up a variable scope just to enable reuse
+            with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
                 for i, gpu in enumerate(gpus):
                     with tf.device(f"/gpu:{i}"):
                         with tf.name_scope("tower_" + gpu):
@@ -135,15 +138,16 @@ class tf_model():
                             else:
                                 # not supported yet
                                 sys.exit()
-                            tf.get_variable_scope().reuse_variables()
                             if args.mode == "train":
                                 loss = build_loss(pred, input_ann, cfg)
                                 loss_list.append(loss)
                                 # return var and its corresponding grad
                                 grad = optimizer.compute_gradients(loss)
                                 tower_grads.append(grad)
+                            # tf.get_variable_scope().reuse_variables()
             if args.mode == "train":         
                 mean_grad = average_gradients(tower_grads)
+                # Aren't these 2 the same thing? (UPDATE_OPS-applying gradients)
                 with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
                     self.opt_op = optimizer.apply_gradients(mean_grad)
                 self.loss = tf.add_n(loss_list)

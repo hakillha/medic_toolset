@@ -46,8 +46,8 @@ def parse_args():
         default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0526/",
         )
-    parser.add_argument("--batch_size", type=int, default=32,
-        help="Provided here to enable easy overwritting (not supported yet).")
+    parser.add_argument("--batch_size", type=int,
+        help="Provided here to enable easy overwritting (particularly useful for evaluation).")
     parser.add_argument("--resume", help="Checkpoint file to resume from.",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
         )
@@ -64,11 +64,13 @@ def parse_args():
         )
     parser.add_argument("--model_file",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9.ckpt"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_5.ckpt"
         )
     parser.add_argument("--pkl_dir",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9_res.pkl",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3_res.pkl"
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3_res.pkl"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_5_res.pkl"
         )
     parser.add_argument("--thickness_thres", default=3.0)
 
@@ -141,28 +143,31 @@ def train(sess, args, cfg):
     while epoch < cfg.max_epoch:
         logging.info(f"Epoch {epoch + 1}\n")
         num_batches = 10 if args.debug else num_batches
-        for i in range(num_batches):
-            data_list = []
-            for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
-                im_ar, ann_ar = preprocess(train_dataset[j][0], train_dataset[j][1], cfg, True)
-                data_list.append((im_ar, ann_ar))
-            data_ar = np.array(data_list)
-            im_ar = data_ar[:,0,:,:,:]
-            if cfg.num_class == 1:
-                # to make it compatible with mutlicls label
-                ann_ar = data_ar[:,1,:,:,:] > 0 
-            elif cfg.loss == "softmax":
-                ann_ar = data_ar[:,1,:,:,0]
-            elif cfg.loss == "sigmoid":
-                ann_ar = np.repeat(data_ar[:,1,:,:,:], cfg.num_class + 1, -1)
-                all_cls_ids = np.ones(shape=ann_ar.shape)
-                for i in range(cfg.num_class + 1):
-                    all_cls_ids[...,i] = all_cls_ids[...,i] * i
-                ann_ar = ann_ar == all_cls_ids
-            ret_loss, _ = sess.run([model.loss, model.opt_op],
-                feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
-            # if i % 5 == 0:
-            logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss}")
+        with tf.contrib.tfprof.ProfileContext("", trace_steps=[], dump_steps=[]) as pctx:
+            for i in range(num_batches):
+                data_list = []
+                for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
+                    # Careful with a batch size that can't be divided evenly bt the number of gpus
+                    # when at the end during a multi-GPU training
+                    im_ar, ann_ar = preprocess(train_dataset[j][0], train_dataset[j][1], cfg, True)
+                    data_list.append((im_ar, ann_ar))
+                data_ar = np.array(data_list)
+                im_ar = data_ar[:,0,:,:,:]
+                if cfg.num_class == 1:
+                    # to make it compatible with mutlicls label
+                    ann_ar = data_ar[:,1,:,:,:] > 0 
+                elif cfg.loss == "softmax":
+                    ann_ar = data_ar[:,1,:,:,0]
+                elif cfg.loss == "sigmoid":
+                    ann_ar = np.repeat(data_ar[:,1,:,:,:], cfg.num_class + 1, -1)
+                    all_cls_ids = np.ones(shape=ann_ar.shape)
+                    for i in range(cfg.num_class + 1):
+                        all_cls_ids[...,i] = all_cls_ids[...,i] * i
+                    ann_ar = ann_ar == all_cls_ids
+                ret_loss, _ = sess.run([model.loss, model.opt_op],
+                    feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
+                # if i % 5 == 0:
+                logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss}")
         for _ in range(args.num_retry):
             try:
                 ckpt_dir = pj(output_dir, f"epoch_{epoch + 1}.ckpt")
@@ -284,6 +289,8 @@ def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
             elif cfg.preprocess["resize"]:
                 pred_stack.append(cv2.resize(dis_prd[i,:,:,0].astype(np.float32), ori_shape[::-1], interpolation=cv2.INTER_NEAREST))
         dis_prd = np.array(pred_stack)
+        if True:
+            viz_patient(dis_prd, lab_arr)
         score = dice_coef_pat(dis_prd, lab_arr)
         if score < 0.3:
             if log:
@@ -303,6 +310,8 @@ if __name__ == "__main__":
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu if args.gpu else ",".join(args.gpus_to_use)
     cfg = Config()
     cfg.load_from_json(args.config)
+    if args.batch_size:
+        cfg.batch_size = args.batch_size
     config = tf.ConfigProto(allow_soft_placement=True)
     config.gpu_options.allow_growth = True
     config.gpu_options.per_process_gpu_memory_fraction = 0.95
