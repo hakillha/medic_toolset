@@ -91,9 +91,10 @@ def UpSEResidualBlock(x1,x2,filters,reduction,stride,name_scope):
         out=tf.nn.leaky_relu(out)
         return out 
     
-def SEResUNet(x,num_classes,reduction,name_scope):
+def SEResUNet(x,num_classes,reduction,name_scope, cfg):
     with tf.variable_scope(name_scope):
         num_channels=[16,32,64,128,256]
+        res_dict = {}
         x=InputLayer(x,multiplier=3,name_scope='Input')
         x=tf.layers.conv2d(x,num_channels[0],kernel_size=(3,3),strides=1,padding='same',name='conv1')
         x = GroupNorm(x,name_scope='gn1',group=8)
@@ -106,8 +107,9 @@ def SEResUNet(x,num_classes,reduction,name_scope):
         down4_map=SEResidualBlock(x,num_channels[3],reduction,stride=1,is_atrous=False,name_scope='SERes3') #128 1/4
         x=SEResidualBlock(down4_map,num_channels[3],reduction,stride=1,is_atrous=True,name_scope='Down4') #128 1/4
         down5_map=SEResidualBlock(x,num_channels[4],reduction,stride=1,is_atrous=False,name_scope='SERes4') #256 1/4
-        x=SEResidualBlock(down5_map,num_channels[3],reduction,stride=1,is_atrous=True,name_scope='Down5') #128 1/4
-        x=UpSEResidualBlock(x,down4_map,num_channels[3],reduction,stride=1,name_scope='Up1') #128 1/4
+        latent_map=SEResidualBlock(down5_map,num_channels[3],reduction,stride=1,is_atrous=True,name_scope='Down5') #128 1/4
+
+        x=UpSEResidualBlock(latent_map,down4_map,num_channels[3],reduction,stride=1,name_scope='Up1') #128 1/4
         x=SEResidualBlock(x,num_channels[2],reduction,stride=1,is_atrous=False,name_scope='SERes5') #64 1/4
         x=UpSEResidualBlock(x,down3_map,num_channels[2],reduction,stride=1,name_scope='Up2') #64 1/4
         x=SEResidualBlock(x,num_channels[1],reduction,stride=1,is_atrous=False,name_scope='SERes6') #32 1/4
@@ -115,7 +117,20 @@ def SEResUNet(x,num_classes,reduction,name_scope):
         x=SEResidualBlock(x,num_channels[0],reduction,stride=1,is_atrous=False,name_scope='SERes7') #16 1/2
         x=UpSEResidualBlock(x,down1_map,num_channels[0],reduction,stride=2,name_scope='Up4') #16 1
         x=tf.layers.conv2d(x,num_classes,kernel_size=(1,1),strides=1,padding='same',name='conv_final')
-        return x
+        res_dict["seg_map"] = x
+
+        if cfg.network["reconstruct"]:
+            with tf.variable_scope("recon"):
+                x=UpSEResidualBlock(latent_map,down4_map,num_channels[3],reduction,stride=1,name_scope='Up1') #128 1/4
+                x=SEResidualBlock(x,num_channels[2],reduction,stride=1,is_atrous=False,name_scope='SERes5') #64 1/4
+                x=UpSEResidualBlock(x,down3_map,num_channels[2],reduction,stride=1,name_scope='Up2') #64 1/4
+                x=SEResidualBlock(x,num_channels[1],reduction,stride=1,is_atrous=False,name_scope='SERes6') #32 1/4
+                x=UpSEResidualBlock(x,down2_map,num_channels[1],reduction,stride=2,name_scope='Up3') #32 1/2
+                x=SEResidualBlock(x,num_channels[0],reduction,stride=1,is_atrous=False,name_scope='SERes7') #16 1/2
+                x=UpSEResidualBlock(x,down1_map,num_channels[0],reduction,stride=2,name_scope='Up4') #16 1
+                x=tf.layers.conv2d(x,1,kernel_size=(1,1),strides=1,padding='same',name='conv_final')
+                res_dict["recon_map"] = x
+        return res_dict
     
     
         

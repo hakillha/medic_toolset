@@ -7,6 +7,8 @@ class Config():
         self.im_size = (256, 256) # w, h
         self.max_epoch = 40 # maximum number of epochs you can run
         self.num_class = 1
+        self.network = {"name": "SEResUNet", 
+            "reconstruct": False}
         self.optimizer = None
         self.loss = None
         self.eval = {"ct_interval": [-1400, 800], "norm_by_interval": False}
@@ -23,6 +25,7 @@ class Config():
         self.im_size = tuple([dim for dim in cf_dict["im_size"]])
         self.max_epoch = cf_dict["max_epoch"]
         self.num_class = cf_dict["num_class"]
+        self.network = cf_dict["network"]
         self.optimizer = cf_dict["optimizer"]
         if "multiclass_loss" in cf_dict.keys():
             self.loss = cf_dict["multiclass_loss"]

@@ -48,31 +48,32 @@ def focal_loss(pred, input_ann):
     return -tf.reduce_mean(y_true_loss + y_false_loss)
 
 def build_loss(pred, input_ann, cfg):
+    seg_map = pred["seg_map"]
     if cfg.num_class == 1:
         # For some reason float32 is working
         if cfg.loss == "sigmoid":
-            ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=pred)
+            ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map)
             loss = tf.reduce_mean(ce)
         elif cfg.loss == "hbloss_dice_focal":
-            # loss = hbloss_dice_focal(pred, input_ann)
-            loss = hbloss_dice_focal_v1(pred, input_ann)
+            # loss = hbloss_dice_focal(seg_map, input_ann)
+            loss = hbloss_dice_focal_v1(seg_map, input_ann)
         elif cfg.loss == "generalized_dice_loss":
-            loss = generalized_dice_loss(pred, input_ann)
+            loss = generalized_dice_loss(seg_map, input_ann)
         elif cfg.loss == "dice_loss":
-            loss = dice_loss(pred, input_ann)
+            loss = dice_loss(seg_map, input_ann)
         elif cfg.loss == "focal":
-            loss = focal_loss(pred, input_ann)
+            loss = focal_loss(seg_map, input_ann)
         elif cfg.loss == "hbloss_dice_focal_v2":
-            loss = dice_loss(pred, input_ann) + .5 * focal_loss(pred, input_ann)
+            loss = dice_loss(seg_map, input_ann) + .5 * focal_loss(seg_map, input_ann)
         elif cfg.loss == "hbloss_dice_ce":
-            ce = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=pred))
-            loss = dice_loss(pred, input_ann) + .1 * ce
+            ce = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map))
+            loss = dice_loss(seg_map, input_ann) + .1 * ce
     else:
         if cfg.loss == "softmax":
-            ce = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=input_ann, logits=pred)
+            ce = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=input_ann, logits=seg_map)
             loss = tf.reduce_mean(ce)
         elif cfg.loss == "sigmoid":
-            ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=pred)
+            ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map)
             loss = tf.reduce_mean(ce)
     return loss
 
@@ -135,7 +136,7 @@ class tf_model():
                         with tf.name_scope("tower_" + gpu):
                             input_im, input_ann = im_split[i], ann_split[i]
                             if cfg.num_class == 1:
-                                pred = SEResUNet(input_im, 1, 8, "SEResUNet")
+                                pred = SEResUNet(input_im, 1, 8, "SEResUNet", cfg)
                             else:
                                 # not supported yet
                                 sys.exit()
@@ -154,9 +155,9 @@ class tf_model():
                 self.loss = tf.add_n(loss_list)
         else:
             if cfg.num_class == 1:
-                self.pred = SEResUNet(self.input_im, num_classes=1, reduction=8, name_scope="SEResUNet")
+                self.pred = SEResUNet(self.input_im, num_classes=1, reduction=8, name_scope="SEResUNet", cfg=cfg)
             else:
-                self.pred = SEResUNet(self.input_im, num_classes=cfg.num_class + 1, reduction=8, name_scope="SEResUNet")
+                self.pred = SEResUNet(self.input_im, num_classes=cfg.num_class + 1, reduction=8, name_scope="SEResUNet", cfg=cfg)
             if args.mode == "train": 
                 self.loss = build_loss(self.pred, self.input_ann, cfg) 
                 self.opt_op = optimizer.minimize(self.loss, global_step=global_step)

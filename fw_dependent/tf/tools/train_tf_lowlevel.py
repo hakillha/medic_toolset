@@ -58,6 +58,9 @@ def parse_args():
     parser.add_argument("--retry_waittime", default=120, help="In seconds.")
     parser.add_argument("--eval_while_train", action="store_true", default=True,
         help="""Need to provide "--testset_dir" for this.""")
+    parser.add_argument("--debug", action="store_true", 
+        help="""When set to true, run only 10 steps 
+        to see if eval after checkpoint works correctly.""")
 
     # Eval mode related
     parser.add_argument("--testset_dir", nargs='+',
@@ -77,8 +80,6 @@ def parse_args():
     parser.add_argument("--epochs2eval", nargs='+', default=["13", "11", "10", "9", "8"])
     parser.add_argument("--thickness_thres", default=3.0)
     parser.add_argument("--viz", help="Middle name of the visualization output directory.")
-
-    parser.add_argument("--debug", action="store_true")
 
     return parser.parse_args()
     # So that this works with jupyter
@@ -276,9 +277,9 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         step = depth//segs + 1 if depth%segs != 0 else depth//segs
         for ii in range(step):
             if ii != step-1:
-                pp = sess.run(model.pred, feed_dict={model.input_im: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
+                pp = sess.run(model.pred["seg_map"], feed_dict={model.input_im: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
             else:
-                pp = sess.run(model.pred, feed_dict={model.input_im: dis_arr[ii*segs:, ...]}) #[0]
+                pp = sess.run(model.pred["seg_map"], feed_dict={model.input_im: dis_arr[ii*segs:, ...]}) #[0]
             pp = 1/ (1 + np.exp(-pp)) # this only works for single class
             pred_.append(pp)
         dis_prd = np.concatenate(pred_, axis=0)
