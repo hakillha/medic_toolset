@@ -17,8 +17,9 @@ from fast.cf_mod.misc.utils import get_infos
 from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
-from fw_neutral.utils.data_proc import paths_from_data, im_normalize, preprocess
 from fw_neutral.utils.config import Config
+from fw_neutral.utils.data_proc import paths_from_data, im_normalize, preprocess
+from fw_neutral.utils.viz import viz_patient
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -31,7 +32,7 @@ def parse_args():
             "--testset_dir"
             "--pkl_dir": Output.
         """)
-    parser.add_argument("mode", choices=["train", "eval"])
+    parser.add_argument("mode", choices=["train", "eval", "eval_multi"])
     parser.add_argument("config", help="Config file.")
     parser.add_argument("--gpu", help="Choose GPU.")
     parser.add_argument("--gpus_to_use", nargs='+')
@@ -48,7 +49,8 @@ def parse_args():
         )
     parser.add_argument("--batch_size", type=int,
         help="Provided here to enable easy overwritting (particularly useful for evaluation).")
-    parser.add_argument("--resume", help="Checkpoint file to resume from.",
+    parser.add_argument("--resume", 
+        help="""Checkpoint file to resume from. Its directory will overwrite "output_dir".""",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
         )
     parser.add_argument("--max_to_keep", default=30, help="Max number of checkpoint files to keep.")
@@ -65,24 +67,30 @@ def parse_args():
     parser.add_argument("--model_file",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9.ckpt"
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_5.ckpt"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12.ckpt"
         )
     parser.add_argument("--pkl_dir",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9_res.pkl",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3_res.pkl"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_5_res.pkl"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12_res.pkl"
         )
+    parser.add_argument("--epochs2eval", nargs='+', default=["13", "11", "10", "9", "8"])
     parser.add_argument("--thickness_thres", default=3.0)
+    parser.add_argument("--viz", help="Middle name of the visualization output directory.")
 
     parser.add_argument("--debug", action="store_true")
 
     return parser.parse_args()
     # So that this works with jupyter
     # return parser.parse_args(args=[
-    #     "--train_dir",
-    #     "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train/",
-    #     "--output_dir",
-    #     "/rdfs/fast/home/sunyingge/data/models/work_dir_0514/SEResUNET_0514/"
+    #     "eval",
+    #     "/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/cfg.json",
+    #     "--gpu",
+    #     "2",
+    #     "--batch_size",
+    #     "16"
+    #     "--viz",
+    #     "viz_0530_01"
     # ])
 
 def ini_training_set(args, cfg):
@@ -143,31 +151,32 @@ def train(sess, args, cfg):
     while epoch < cfg.max_epoch:
         logging.info(f"Epoch {epoch + 1}\n")
         num_batches = 10 if args.debug else num_batches
-        with tf.contrib.tfprof.ProfileContext("", trace_steps=[], dump_steps=[]) as pctx:
-            for i in range(num_batches):
-                data_list = []
-                for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
-                    # Careful with a batch size that can't be divided evenly bt the number of gpus
-                    # when at the end during a multi-GPU training
-                    im_ar, ann_ar = preprocess(train_dataset[j][0], train_dataset[j][1], cfg, True)
-                    data_list.append((im_ar, ann_ar))
-                data_ar = np.array(data_list)
-                im_ar = data_ar[:,0,:,:,:]
-                if cfg.num_class == 1:
-                    # to make it compatible with mutlicls label
-                    ann_ar = data_ar[:,1,:,:,:] > 0 
-                elif cfg.loss == "softmax":
-                    ann_ar = data_ar[:,1,:,:,0]
-                elif cfg.loss == "sigmoid":
-                    ann_ar = np.repeat(data_ar[:,1,:,:,:], cfg.num_class + 1, -1)
-                    all_cls_ids = np.ones(shape=ann_ar.shape)
-                    for i in range(cfg.num_class + 1):
-                        all_cls_ids[...,i] = all_cls_ids[...,i] * i
-                    ann_ar = ann_ar == all_cls_ids
-                ret_loss, _ = sess.run([model.loss, model.opt_op],
-                    feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
-                # if i % 5 == 0:
-                logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss}")
+        # with tf.contrib.tfprof.ProfileContext("", trace_steps=[], dump_steps=[]) as pctx:
+        for i in range(num_batches):
+            data_list = []
+            for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
+                # Careful with a batch size that can't be divided evenly bt the number of gpus
+                # when at the end during a multi-GPU training
+                im_ar, ann_ar = preprocess(train_dataset[j][0], train_dataset[j][1], cfg, True)
+                data_list.append((im_ar, ann_ar))
+            data_ar = np.array(data_list)
+            im_ar = data_ar[:,0,:,:,:]
+            if cfg.num_class == 1:
+                # to make it compatible with mutlicls label
+                ann_ar = data_ar[:,1,:,:,:] > 0 
+            elif cfg.loss == "softmax":
+                ann_ar = data_ar[:,1,:,:,0]
+            elif cfg.loss == "sigmoid":
+                ann_ar = np.repeat(data_ar[:,1,:,:,:], cfg.num_class + 1, -1)
+                all_cls_ids = np.ones(shape=ann_ar.shape)
+                for i in range(cfg.num_class + 1):
+                    all_cls_ids[...,i] = all_cls_ids[...,i] * i
+                ann_ar = ann_ar == all_cls_ids
+            ret_loss, ret_lr, _, global_step = sess.run(
+                [model.loss, model.learning_rate, model.opt_op, model.global_step],
+                feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
+            # if i % 5 == 0:
+            logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss:.5f}, lr: {ret_lr:.8f}, global step: {global_step}")
         for _ in range(args.num_retry):
             try:
                 ckpt_dir = pj(output_dir, f"epoch_{epoch + 1}.ckpt")
@@ -181,7 +190,7 @@ def train(sess, args, cfg):
                 time.sleep(args.retry_waittime)
                 # time.sleep(10)#
         if args.eval_while_train and not args.gpus_to_use:
-            evaluation(sess, args, cfg, model, ckpt_dir.replace(".ckpt", "_res.pkl"), log=True)
+            evaluation("during_training", sess, args, cfg, model, ckpt_dir.replace(".ckpt", "_res.pkl"), log=True)
         epoch += 1
 
 def show_dice(all_res, log=False):
@@ -211,22 +220,27 @@ def show_dice(all_res, log=False):
         else:
             print(f"{key}: {np.mean(np.array(stats[key]))}")
 
-def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
+def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
     """
         Args:
+            mode: ["during_training", "eval", "eval_mutli"]
             model: For eval during training.
+            pkl_dir: Provided for an eval during training to overwrite the args.
     """
     info_paths = []
     for folder in args.testset_dir:
         info_paths += get_infos(folder)
     info_paths = sorted(info_paths, key=lambda info:info[0])
     all_result = []
-    if not model:
+    if mode == "eval":
         model = tf_model(args, cfg)
         saver = tf.train.Saver()
         saver.restore(sess, args.model_file)
-    else:
+    elif mode == "during_training":
         args.pkl_dir = pkl_dir
+    elif mode == "eval_multi":
+        saver = tf.train.Saver()
+        saver.restore(sess, args.model_file)
     pbar = tqdm(total=len(info_paths))
     if os.path.exists(args.pkl_dir):
         input("Result file already exists. Press enter to \
@@ -242,13 +256,13 @@ def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
             continue
         depth, ori_shape = img_arr.shape[0], img_arr.shape[1:]
         spacing = img_ori.GetSpacing()
-        dis_arr = im_normalize(img_arr, cfg.eval["ct_interval"][0], cfg.eval["ct_interval"][1], 
+        img_arr_normed = im_normalize(img_arr, cfg.eval["ct_interval"][0], cfg.eval["ct_interval"][1], 
             cfg.eval["norm_by_interval"])
         # dis_arr = resize3d(dis_arr, cfg.im_size, interpolation=cv2.INTER_LINEAR)
         im_stack = []
         topleft_list = [] if cfg.preprocess["cropping"] else None
-        for i in range(dis_arr.shape[0]):
-            res = preprocess(dis_arr[i,...], None, cfg, False)
+        for i in range(img_arr_normed.shape[0]):
+            res = preprocess(img_arr_normed[i,...], None, cfg, False)
             if cfg.preprocess["cropping"]:
                 im_stack.append(res[0])
                 topleft_list.append(res[1])
@@ -289,10 +303,11 @@ def evaluation(sess, args, cfg, model=None, pkl_dir=None, log=False):
             elif cfg.preprocess["resize"]:
                 pred_stack.append(cv2.resize(dis_prd[i,:,:,0].astype(np.float32), ori_shape[::-1], interpolation=cv2.INTER_NEAREST))
         dis_prd = np.array(pred_stack)
-        if True:
-            viz_patient(dis_prd, lab_arr)
         score = dice_coef_pat(dis_prd, lab_arr)
         if score < 0.3:
+            if args.viz:
+                viz_patient(img_arr_normed, dis_prd, lab_arr, 
+                    pj(os.path.dirname(args.model_file), args.viz), img_file)
             if log:
                 logging.info(os.path.dirname(lab_file))
                 logging.info(score)
@@ -320,4 +335,11 @@ if __name__ == "__main__":
     if args.mode == "train":
         train(sess, args, cfg)
     elif args.mode == "eval":
-        evaluation(sess, args, cfg)
+        evaluation("eval", sess, args, cfg)
+    elif args.mode == "eval_multi":
+        model = tf_model(args, cfg)
+        for epoch in args.epochs2eval:
+            args.model_file = pj(os.path.dirname(args.model_file), f"epoch_{epoch}.ckpt")
+            args.pkl_dir = pj(os.path.dirname(args.pkl_dir), f"epoch_{epoch}_res.pkl")
+            evaluation("eval_multi", sess, args, cfg, model)
+            print(f"Finished evaluating epoch {epoch}.")

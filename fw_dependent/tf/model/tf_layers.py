@@ -114,11 +114,12 @@ class tf_model():
                 [], initializer=tf.constant_initializer(0), trainable=False, dtype=tf.int32)
             # else:
             #     global_step = tf.Variable(0, False) # For backward compatibility
+            self.global_step = global_step
             assert num_batches, "Please provide batch size for training mode!"
             steps = [num_batches * epoch_step for epoch_step in cfg.optimizer["epoch_to_drop_lr"]]
             print(f"Steps to drop LR: {steps}")
-            learning_rate = tf.train.piecewise_constant(global_step, steps, cfg.optimizer["lr"])
-            optimizer = tf.train.AdamOptimizer(learning_rate)
+            self.learning_rate = tf.train.piecewise_constant(global_step, steps, cfg.optimizer["lr"])
+            optimizer = tf.train.AdamOptimizer(self.learning_rate)
                         
         if gpus:
             num_gpus = len(gpus)
@@ -149,7 +150,7 @@ class tf_model():
                 mean_grad = average_gradients(tower_grads)
                 # Aren't these 2 the same thing? (UPDATE_OPS-applying gradients)
                 with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-                    self.opt_op = optimizer.apply_gradients(mean_grad)
+                    self.opt_op = optimizer.apply_gradients(mean_grad, global_step=global_step)
                 self.loss = tf.add_n(loss_list)
         else:
             if cfg.num_class == 1:
