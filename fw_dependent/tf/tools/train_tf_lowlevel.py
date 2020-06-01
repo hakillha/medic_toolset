@@ -70,14 +70,16 @@ def parse_args():
     parser.add_argument("--model_file",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9.ckpt"
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12.ckpt"
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12.ckpt"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0530_01/epoch_12.ckpt"
         )
     parser.add_argument("--pkl_dir",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9_res.pkl",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3_res.pkl"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12_res.pkl"
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12_res.pkl"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0530_01/epoch_12_res.pkl"
         )
-    parser.add_argument("--epochs2eval", nargs='+', default=["13", "11", "10", "9", "8"])
+    parser.add_argument("--epochs2eval", nargs='+', default=["12", "11", "10", "9"])
     parser.add_argument("--thickness_thres", default=3.0)
     parser.add_argument("--viz", help="Middle name of the visualization output directory.")
 
@@ -175,7 +177,7 @@ def train(sess, args, cfg):
                 ann_ar = ann_ar == all_cls_ids
             ret_loss, ret_lr, _, global_step = sess.run(
                 [model.loss, model.learning_rate, model.opt_op, model.global_step],
-                feed_dict={model.input_im: im_ar, model.input_ann: ann_ar,})
+                feed_dict={model.input_dict["im"]: im_ar, model.input_dict["anno"]: ann_ar,})
             # if i % 5 == 0:
             logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss:.5f}, lr: {ret_lr:.8f}, global step: {global_step}")
         for _ in range(args.num_retry):
@@ -277,9 +279,9 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         step = depth//segs + 1 if depth%segs != 0 else depth//segs
         for ii in range(step):
             if ii != step-1:
-                pp = sess.run(model.pred["seg_map"], feed_dict={model.input_im: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
+                pp = sess.run(model.pred["seg_map"], feed_dict={model.input_dict["im"]: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
             else:
-                pp = sess.run(model.pred["seg_map"], feed_dict={model.input_im: dis_arr[ii*segs:, ...]}) #[0]
+                pp = sess.run(model.pred["seg_map"], feed_dict={model.input_dict["im"]: dis_arr[ii*segs:, ...]}) #[0]
             pp = 1/ (1 + np.exp(-pp)) # this only works for single class
             pred_.append(pp)
         dis_prd = np.concatenate(pred_, axis=0)

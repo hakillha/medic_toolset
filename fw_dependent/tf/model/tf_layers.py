@@ -47,7 +47,7 @@ def focal_loss(pred, input_ann):
     y_false_loss = tf.cast(tf.equal(input_ann, False), tf.float32) * prob * prob * tf.math.log(prob_)
     return -tf.reduce_mean(y_true_loss + y_false_loss)
 
-def build_loss(pred, input_ann, cfg):
+def build_loss(pred, input_im, input_ann, cfg):
     seg_map = pred["seg_map"]
     if cfg.num_class == 1:
         # For some reason float32 is working
@@ -75,6 +75,8 @@ def build_loss(pred, input_ann, cfg):
         elif cfg.loss == "sigmoid":
             ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map)
             loss = tf.reduce_mean(ce)
+    if cfg.network["reconstruct"]:
+        loss += tf.losses.mean_squared_error(input_im, pred["recon_map"])
     return loss
 
 def average_gradients(tower_grads):
@@ -97,18 +99,15 @@ def average_gradients(tower_grads):
 
 class tf_model():
     def __init__(self, args, cfg, gpus=None, num_batches=None):
-        """
-            Args:
-                input_map: Need to be passed in when creating multi-gpu model.
-        """
-        self.input_im = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_im")
+        self.input_dict = {}
+        self.input_dict["im"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_im")
         if cfg.num_class == 1:
-            self.input_ann = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
+            self.input_dict["anno"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
         else:
             if cfg.loss == "softmax":
-                self.input_ann = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
+                self.input_dict["anno"] = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
             elif cfg.loss == "sigmoid":
-                self.input_ann = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], cfg.num_class + 1))
+                self.input_dict["anno"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], cfg.num_class + 1))
         if args.mode == "train":   
             # if gpus:
             global_step = tf.get_variable("global_step", 
@@ -124,8 +123,8 @@ class tf_model():
                         
         if gpus:
             num_gpus = len(gpus)
-            im_split = tf.split(self.input_im, num_gpus, 0)
-            ann_split = tf.split(self.input_ann, num_gpus, 0)
+            im_split = tf.split(self.input_dict["im"], num_gpus, 0)
+            ann_split = tf.split(self.input_dict["anno"], num_gpus, 0)
             tower_grads, loss_list = [], []
             # Need this variable scope to make sure variables are given names 
             # to enable reuse, probably for build_loss()?
@@ -134,6 +133,7 @@ class tf_model():
                 for i, gpu in enumerate(gpus):
                     with tf.device(f"/gpu:{i}"):
                         with tf.name_scope("tower_" + gpu):
+                            # These 2 are internal and not exposed
                             input_im, input_ann = im_split[i], ann_split[i]
                             if cfg.num_class == 1:
                                 pred = SEResUNet(input_im, 1, 8, "SEResUNet", cfg)
@@ -141,7 +141,7 @@ class tf_model():
                                 # not supported yet
                                 sys.exit()
                             if args.mode == "train":
-                                loss = build_loss(pred, input_ann, cfg)
+                                loss = build_loss(pred, input_im, input_ann, cfg)
                                 loss_list.append(loss)
                                 # return var and its corresponding grad
                                 grad = optimizer.compute_gradients(loss)
@@ -155,11 +155,11 @@ class tf_model():
                 self.loss = tf.add_n(loss_list)
         else:
             if cfg.num_class == 1:
-                self.pred = SEResUNet(self.input_im, num_classes=1, reduction=8, name_scope="SEResUNet", cfg=cfg)
+                self.pred = SEResUNet(self.input_dict["im"], num_classes=1, reduction=8, name_scope="SEResUNet", cfg=cfg)
             else:
-                self.pred = SEResUNet(self.input_im, num_classes=cfg.num_class + 1, reduction=8, name_scope="SEResUNet", cfg=cfg)
+                self.pred = SEResUNet(self.input_dict["im"], num_classes=cfg.num_class + 1, reduction=8, name_scope="SEResUNet", cfg=cfg)
             if args.mode == "train": 
-                self.loss = build_loss(self.pred, self.input_ann, cfg) 
+                self.loss = build_loss(self.pred, self.input_dict["im"], self.input_dict["anno"], cfg) 
                 self.opt_op = optimizer.minimize(self.loss, global_step=global_step)
                 
 

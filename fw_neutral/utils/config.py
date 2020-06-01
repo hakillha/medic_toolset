@@ -25,7 +25,8 @@ class Config():
         self.im_size = tuple([dim for dim in cf_dict["im_size"]])
         self.max_epoch = cf_dict["max_epoch"]
         self.num_class = cf_dict["num_class"]
-        self.network = cf_dict["network"]
+        if "network" in cf_dict:
+            self.network = cf_dict["network"]
         self.optimizer = cf_dict["optimizer"]
         if "multiclass_loss" in cf_dict.keys():
             self.loss = cf_dict["multiclass_loss"]
