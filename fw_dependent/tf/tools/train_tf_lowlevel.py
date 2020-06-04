@@ -1,5 +1,5 @@
 import argparse, logging, os, sys, time
-import cv2, pickle, shutil
+import pickle, shutil
 import matplotlib.pyplot as plt
 import numpy as np
 import SimpleITK as sitk
@@ -18,7 +18,7 @@ from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
 from fw_neutral.utils.config import Config
-from fw_neutral.utils.data_proc import paths_from_data, im_normalize, preprocess
+from fw_neutral.utils.data_proc import paths_from_data, im_normalize, extra_processing
 from fw_neutral.utils.viz import viz_patient
 
 def parse_args():
@@ -41,7 +41,8 @@ def parse_args():
     parser.add_argument("-o", "--output_dir",
         help="""You only need to provide a prefix which will be automatically be 
             complemented by time to keep things distincive easily. This will be ignored
-            when resuming from a checkpoint.""",
+            when resuming from a checkpoint.
+            You can also provide one that already exists to overwrite the automatical generated one.""",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_")
     parser.add_argument("--train_dir", help="Training set directory.",
         default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
@@ -68,18 +69,15 @@ def parse_args():
         "/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/covid_pneu_datasets"]
         )
     parser.add_argument("--model_file",
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9.ckpt"
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3.ckpt"
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12.ckpt"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0530_01/epoch_12.ckpt"
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0601_02/epoch_9.ckpt",
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0602_1348_05/epoch_1.ckpt"
         )
     parser.add_argument("--pkl_dir",
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0525_2051_19/epoch_9_res.pkl",
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0526_01/epoch_3_res.pkl"
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12_res.pkl"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0530_01/epoch_12_res.pkl"
+        help="""If not provided, it will be generated from "model_file".""",
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0601_02/epoch_9_res.pkl",
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0602_1348_05/epoch_1_res.pkl"
         )
-    parser.add_argument("--epochs2eval", nargs='+', default=["12", "11", "10", "9"])
+    parser.add_argument("--epochs2eval", nargs='+', default=["6", "5"])
     parser.add_argument("--thickness_thres", default=3.0)
     parser.add_argument("--viz", help="Middle name of the visualization output directory.")
 
@@ -122,6 +120,8 @@ def train(sess, args, cfg):
         if os.path.exists(args.output_dir):
             output_dir = args.output_dir
         else:
+            # If out_dir is not overwritten by an existing one,
+            # create one automatically.
             output_dir = args.output_dir + time.strftime("%m%d_%H%M_%S", time.localtime())
         if os.path.exists(output_dir):
             if not args.debug:
@@ -160,7 +160,8 @@ def train(sess, args, cfg):
             for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
                 # Careful with a batch size that can't be divided evenly bt the number of gpus
                 # when at the end during a multi-GPU training
-                im_ar, ann_ar = preprocess(train_dataset[j][0], train_dataset[j][1], cfg, True)
+                ex_process = extra_processing(cfg)
+                im_ar, ann_ar = ex_process.preprocess(train_dataset[j][0], train_dataset[j][1], True)
                 data_list.append((im_ar, ann_ar))
             data_ar = np.array(data_list)
             im_ar = data_ar[:,0,:,:,:]
@@ -248,7 +249,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
     if os.path.exists(args.pkl_dir):
         input("Result file already exists. Press enter to \
             continue and overwrite it when inference is done...")
-    for num, info in enumerate(info_paths):
+    for info in info_paths:
         img_file, lab_file = info[0:2]
         try:
             img_ori,  lab_ori  = sitk.ReadImage(img_file, sitk.sitkFloat32), sitk.ReadImage(lab_file, sitk.sitkInt16)
@@ -259,19 +260,10 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
             continue
         depth, ori_shape = img_arr.shape[0], img_arr.shape[1:]
         spacing = img_ori.GetSpacing()
-        img_arr_normed = im_normalize(img_arr, cfg.eval["ct_interval"][0], cfg.eval["ct_interval"][1], 
-            cfg.eval["norm_by_interval"])
-        # dis_arr = resize3d(dis_arr, cfg.im_size, interpolation=cv2.INTER_LINEAR)
-        im_stack = []
-        topleft_list = [] if cfg.preprocess["cropping"] else None
-        for i in range(img_arr_normed.shape[0]):
-            res = preprocess(img_arr_normed[i,...], None, cfg, False)
-            if cfg.preprocess["cropping"]:
-                im_stack.append(res[0])
-                topleft_list.append(res[1])
-            elif cfg.preprocess["resize"]:
-                im_stack.append(res)
-        dis_arr = np.array(im_stack)
+        img_arr_normed = im_normalize(img_arr, cfg.preprocess["normalize"]["ct_interval"], 
+            cfg.preprocess["normalize"]["norm_by_interval"])
+        ex_processing = extra_processing(cfg, og_shape=ori_shape[::-1])
+        dis_arr = ex_processing.batch_preprocess(img_arr_normed, None, False)
         
         pred_ = []
         segs = cfg.batch_size
@@ -294,18 +286,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
             elif "covid_pneu" in img_file:
                 cls_id = 1
             dis_prd = np.argmax(dis_prd, -1) == cls_id
-        # dis_prd = resize3d(dis_prd.astype(np.uint8), ori_shape, interpolation=cv2.INTER_NEAREST)
-        # insert postprocessing here
-        # dis_prd = np.array([postprocess(dis_prd[i,...], cfg, topleft_list) for i in range(dis_prd.shape[0])])
-        pred_stack = []
-        for i in range(dis_prd.shape[0]):
-            if cfg.preprocess["cropping"]:
-                padded_res = np.zeros(shape=ori_shape[::-1])
-                padded_res[topleft_list[i][1]:topleft_list[i][1] + cfg.im_size[0],topleft_list[i][0]:topleft_list[i][0] + cfg.im_size[1]] = dis_prd[i,:,:,0]
-                pred_stack.append(padded_res)
-            elif cfg.preprocess["resize"]:
-                pred_stack.append(cv2.resize(dis_prd[i,:,:,0].astype(np.float32), ori_shape[::-1], interpolation=cv2.INTER_NEAREST))
-        dis_prd = np.array(pred_stack)
+        dis_prd = ex_processing.batch_postprocess(dis_prd)
         score = dice_coef_pat(dis_prd, lab_arr)
         if score < 0.3:
             if args.viz:
@@ -330,6 +311,8 @@ if __name__ == "__main__":
     cfg.load_from_json(args.config)
     if args.batch_size:
         cfg.batch_size = args.batch_size
+    if not args.pkl_dir:
+        args.pkl_dir = args.model_file.replace(".ckpt", "_res.pkl")
     config = tf.ConfigProto(allow_soft_placement=True)
     config.gpu_options.allow_growth = True
     config.gpu_options.per_process_gpu_memory_fraction = 0.95

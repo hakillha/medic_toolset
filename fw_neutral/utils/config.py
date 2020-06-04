@@ -1,5 +1,6 @@
 import json
 
+# When we extend this to other frameworks we will need subclass this
 class Config():
     def __init__(self):
         # default values
@@ -7,15 +8,20 @@ class Config():
         self.im_size = (256, 256) # w, h
         self.max_epoch = 40 # maximum number of epochs you can run
         self.num_class = 1
-        self.network = {"name": "SEResUNet", 
-            "reconstruct": False}
+        self.network = {
+            "name": "SEResUNet", 
+            "reconstruct": False,
+            "weight_decay": None}
         self.optimizer = None
         self.loss = None
-        self.eval = {"ct_interval": [-1400, 800], "norm_by_interval": False}
         self.preprocess = {
             "cropping": False,
-            "resize": True
+            "resize": True,
+            "flip": False, # horizontal flip
             }
+
+        # The old default setting kept for reference
+        # self.eval = {"ct_interval": [-1400, 800], "norm_by_interval": False}
 
     def load_from_json(self, cf_file):
         with open(cf_file) as f:
@@ -26,7 +32,8 @@ class Config():
         self.max_epoch = cf_dict["max_epoch"]
         self.num_class = cf_dict["num_class"]
         if "network" in cf_dict:
-            self.network = cf_dict["network"]
+            for key in cf_dict["network"]:
+                self.network[key] = cf_dict["network"][key]
         self.optimizer = cf_dict["optimizer"]
         if "multiclass_loss" in cf_dict.keys():
             self.loss = cf_dict["multiclass_loss"]
@@ -40,9 +47,11 @@ class Config():
         # use the default setting which is the old setting
         # for the old cfg files where eval configuration is missing
         # new cfg files have to overwrite this to work correctly
-        if "eval" in cf_dict.keys():
-            self.eval = cf_dict["eval"]
+        # if "eval" in cf_dict.keys():
+        #     self.eval = cf_dict["eval"]
+        
         # this should be a list in the json file 
         # indicating the order of preprocessing?
-        if "preprocess" in cf_dict.keys():
-            self.preprocess = cf_dict["preprocess"]
+        assert "normalize" in cf_dict["preprocess"].keys() # This is explicitly required now
+        for key in cf_dict["preprocess"]:
+            self.preprocess[key] = cf_dict["preprocess"][key]

@@ -92,7 +92,8 @@ def UpSEResidualBlock(x1,x2,filters,reduction,stride,name_scope):
         return out 
     
 def SEResUNet(x,num_classes,reduction,name_scope, cfg):
-    with tf.variable_scope(name_scope):
+    wd = tf.keras.regularizers.l2(cfg.network["weight_decay"]) if cfg.network["weight_decay"] else None
+    with tf.variable_scope(name_scope, regularizer=wd):
         num_channels=[16,32,64,128,256]
         res_dict = {}
         x=InputLayer(x,multiplier=3,name_scope='Input')

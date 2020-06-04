@@ -9,6 +9,19 @@ import SimpleITK as sitk
 
 EPS = 1.0e-8
 
+def pneu_type(file_dir, discard_neg=False):
+    if "covid_pneu" in im_file:
+        condition_cat = "covid_pneu"
+    elif "normal_pneu" in im_file:
+        condition_cat = "normal_pneu"
+    elif "healthy" in im_file:
+        if discard_neg:
+            return False
+        condition_cat = "healthy"
+    else:
+        print("Unknown condition!")
+        return False
+
 def get_infos(root_dir, link="-", isprint=True):
     get_paths = []
     get_num = 0
@@ -45,17 +58,7 @@ def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max
         multicat, discard_neg, norm_by_interval):
     im_file, anno_file = info_path
     # print(im_file)
-    if "covid_pneu" in im_file:
-        condition_cat = "covid_pneu"
-    elif "normal_pneu" in im_file:
-        condition_cat = "normal_pneu"
-    elif "healthy" in im_file:
-        if discard_neg:
-            return
-        condition_cat = "healthy"
-    else:
-        print("Unknown condition!")
-        return
+    
     try:
         patient_id = im_file.split('/')[-2]
         im_np = sitk.GetArrayFromImage(sitk.ReadImage(im_file, sitk.sitkFloat32))
@@ -105,8 +108,9 @@ def paths_from_data(data_dir):
             sample_paths += glob.glob(pj(root, "*.pkl"))
     return sample_paths
 
-def im_normalize(im, min_ct_1ch, max_ct_1ch, norm_by_interval):
+def im_normalize(im, ct_interval, norm_by_interval):
     EPS = 1e-8
+    min_ct_1ch, max_ct_1ch = ct_interval
     im = np.clip(im, min_ct_1ch, max_ct_1ch)
     if norm_by_interval:
         im = (im - min_ct_1ch + EPS) / (max_ct_1ch - min_ct_1ch + EPS)
@@ -115,44 +119,80 @@ def im_normalize(im, min_ct_1ch, max_ct_1ch, norm_by_interval):
     im = np.expand_dims(im, -1)
     return im
 
-def preprocess(im, anno, cfg, training):
-    if cfg.preprocess["cropping"]:
-        im_above_thres = np.argwhere(im > cfg.preprocess["cropping_ct_thres"])
-        if len(im_above_thres):
-            center_y, center_x, _ = map(int, np.mean(im_above_thres, axis=0))
-        else:
-            center_y, center_x = im.shape[0] // 2, im.shape[1] // 2
-        if training:
-            randomness = cfg.preprocess["cropping_train_randomness"]
-            center_y += random.randint(-randomness, randomness)
-            center_x += random.randint(-randomness, randomness)
-        x1, x2 = center_x - cfg.im_size[0] // 2, center_x + cfg.im_size[0] // 2
-        y1, y2 = center_y - cfg.im_size[1] // 2, center_y + cfg.im_size[1] // 2
-        if x1 < 0:
-            x1, x2 = 0, cfg.im_size[0]
-        if y1 < 0:
-            y1, y2 = 0, cfg.im_size[1]
-        if x2 > im.shape[1]:
-            x1, x2 = im.shape[1] - cfg.im_size[0], im.shape[1]
-        if y2 > im.shape[0]:
-            y1, y2 = im.shape[0] - cfg.im_size[1], im.shape[0]
-        im = im[y1:y2,x1:x2]
-        if training:
-            anno = anno[y1:y2,x1:x2]
-            return im, np.expand_dims(anno, -1)
-        else:
-            return im, (x1, y1)
-    elif cfg.preprocess["resize"]:
-        im = cv2.resize(im, cfg.im_size, interpolation=cv2.INTER_LINEAR)
-        if training:
-            anno = cv2.resize(anno, cfg.im_size, interpolation=cv2.INTER_NEAREST)
-            return np.expand_dims(im, -1), np.expand_dims(anno, -1)
-        else:
-            return np.expand_dims(im, -1)
+class extra_processing():
+    def __init__(self, cfg, og_shape=None):
+        self.cfg = cfg
+        self.tl_list = []
+        self.og_shape = og_shape
 
-# For evaluation
-# def postprocess(pred, cfg, topleft_list=None):
-#     if cfg.preprocess["cropping"]:
-#         pass
-#     elif cfg.preprocess["resize"]:
-#         pass
+    def preprocess(self, im, anno, training):
+        """
+            args:
+                im: [h, w]
+        """
+        if self.cfg.preprocess["flip"] and training:
+            flip_rate = .5
+            if np.random.rand() < flip_rate:
+                im = np.flip(im, 1)
+                anno = np.flip(anno, 1)
+
+        # Keep shape info in comments
+        if self.cfg.preprocess["cropping"]:
+            im_above_thres = np.argwhere(im > self.cfg.preprocess["cropping_ct_thres"])
+            if len(im_above_thres):
+                center_y, center_x, _ = map(int, np.mean(im_above_thres, axis=0))
+            else:
+                center_y, center_x = im.shape[0] // 2, im.shape[1] // 2
+            if training:
+                randomness = self.cfg.preprocess["cropping_train_randomness"]
+                center_y += random.randint(-randomness, randomness)
+                center_x += random.randint(-randomness, randomness)
+            x1, x2 = center_x - self.cfg.im_size[0] // 2, center_x + self.cfg.im_size[0] // 2
+            y1, y2 = center_y - self.cfg.im_size[1] // 2, center_y + self.cfg.im_size[1] // 2
+            if x1 < 0:
+                x1, x2 = 0, self.cfg.im_size[0]
+            if y1 < 0:
+                y1, y2 = 0, self.cfg.im_size[1]
+            if x2 > im.shape[1]:
+                x1, x2 = im.shape[1] - self.cfg.im_size[0], im.shape[1]
+            if y2 > im.shape[0]:
+                y1, y2 = im.shape[0] - self.cfg.im_size[1], im.shape[0]
+            im = im[y1:y2,x1:x2]
+            if training:
+                anno = anno[y1:y2,x1:x2]
+                return im, np.expand_dims(anno, -1)
+            else:
+                return im, (x1, y1)
+        elif self.cfg.preprocess["resize"]:
+            im = cv2.resize(im, self.cfg.im_size, interpolation=cv2.INTER_LINEAR)
+            if training:
+                anno = cv2.resize(anno, self.cfg.im_size, interpolation=cv2.INTER_NEAREST)
+                return np.expand_dims(im, -1), np.expand_dims(anno, -1)
+            else:
+                return np.expand_dims(im, -1)
+    
+    def batch_preprocess(self, im_batch, anno_batch, training):
+        im_stack = []
+        if training:
+            pass
+        else:
+            for i in range(im_batch.shape[0]):
+                res = self.preprocess(im_batch[i,:,:], None, False)
+                if self.cfg.preprocess["cropping"]:
+                    im_stack.append(res[0])
+                    self.tl_list.append(res[1])
+                elif self.cfg.preprocess["resize"]:
+                    im_stack.append(res)
+            return np.array(im_stack)
+
+    def batch_postprocess(self, pred_batch):
+        pred_stack = []
+        for i in range(pred_batch.shape[0]):
+            if self.cfg.preprocess["cropping"]:
+                padded_res = np.zeros(shape=self.og_shape)
+                padded_res[self.tl_list[i][1]:self.tl_list[i][1] + self.cfg.im_size[0], \
+                    self.tl_list[i][0]:self.tl_list[i][0] + self.cfg.im_size[1]] = pred_batch[i,:,:,0]
+                pred_stack.append(padded_res)
+            elif self.cfg.preprocess["resize"]:
+                pred_stack.append(cv2.resize(pred_batch[i,:,:,0].astype(np.float32), self.og_shape, interpolation=cv2.INTER_NEAREST))
+        return np.array(pred_stack)
