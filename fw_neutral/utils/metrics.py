@@ -1,4 +1,4 @@
-import os, sys
+import argparse, os, sys
 import pickle, skimage.measure
 import numpy as np
 import SimpleITK as sitk
@@ -11,17 +11,43 @@ else:
     from .data_proc import pneu_type
 
 class Patient():
-    def __init__(self, thickness, tags):
+    def __init__(self, fname, thickness, tags):
+        self.fname = fname
         self.thickness = thickness
-        self.lesion_info = [] # list of dict("size","slice_ind")
+        self.lesion_info = [] # list of Lesion() instances
+        self.pred_info = []
         self.tags = defaultdict(bool)
         for tag in tags:
             self.tags[tag] = True
 
+class SegInstance():
+    def __init__(self, area, area_interval, slice_ind, iou=None):
+        self.area = area
+        for k, v in area_interval.items():
+            if area >= v[0] and area < v[1]:
+                self.size = k
+        self.slice_ind = slice_ind
+        self.iou = iou
+
+class Lesion(SegInstance):
+    def __init__(self, detected, *args):
+        super(Lesion, self).__init__(*args)
+        self.detected = detected
+
+class PredInstance(SegInstance):
+    def __init__(self, matched, *args):
+        super(PredInstance, self).__init__(*args)
+        self.matched = matched
+
 def join_tags(tags):
+    # tags = sorted(tags)
     return ','.join(tags)
 
 def check_tags(patient, tags):
+    if not isinstance(tags, list):
+        tags = [tags]
+    if tags == ["all"]:
+        return True
     for tag in tags:
         if not patient.tags[tag]:
             return False
@@ -29,29 +55,30 @@ def check_tags(patient, tags):
 
 # need something interactive for this to work well
 class Evaluation():
-    def __init__(self, thickness_thres):
+    def __init__(self, thickness_thres=3.0):
         self.dataset_stats = []
         self.thickness_threshold = thickness_thres
         # self.size_thres = [26300, 235000]
-        # subset
+        self.subsets = defaultdict(list)
+        # subset example
         # self.subsets = {
         #     "thick": [],
         #     "thin": [],
         #     "common_pneu": [],
         #     "covid_pneu": []
         # }
-        self.subsets = defaultdict(list)
         self.iou_thres = .5
-        self.performance = {
-            "covid_pneu": {"TP": 0, "FP": 0, "num_gt": 0, "num_pred": 0},
-            "common_pneu": {"TP": 0, "FP": 0, "num_gt": 0, "num_pred": 0},
+        self.area_interval = {
+            "small": [0, 1000],
+            "middle": [1000, 5000],
+            "large": [5000, 999999],
         }
-    
+
     def subset_areas(self, tags):
         areas = []
         for p in self.subsets[join_tags(tags)]:
             for lesion in p.lesion_info:
-                areas.append(lesion["area"])
+                areas.append(lesion.area)
         return areas
 
     def single_patient_stats(self, anno_file):
@@ -71,11 +98,11 @@ class Evaluation():
             anno_ins, num_ins = skimage.measure.label(anno_ar[i,:,:], return_num=True, connectivity=2)
             for j in range(num_ins):
                 instance_mask = anno_ins == j + 1
-                single_patient.lesion_info.append(
-                    dict(area=np.sum(instance_mask), slice_ind=i))
+                single_patient.lesion_info.append(Lesion(np.sum(instance_mask), i))
         self.dataset_stats.append(single_patient)
     
-    def set_stats(self, pkl_file, output_dir, hist_range, subsets=[["common_pneu"], ["covid_pneu"]]):
+    def set_stats(self, pkl_file, output_dir, hist_range, 
+        subsets=[["common_pneu"], ["covid_pneu"], ["all"]]):
         # subset_tags should be a list of lists of tags
         # instead of a list of single tags
         if len(self.dataset_stats):
@@ -85,7 +112,7 @@ class Evaluation():
         for patient in self.dataset_stats:
             for tags in subsets:
                 if check_tags(patient, tags):
-                    # overload this
+                    # overload join_tags
                     self.subsets[join_tags(tags)].append(patient)
         for tags in subsets:
             hist, bin_edges = np.histogram(self.subset_areas(tags), 
@@ -109,68 +136,70 @@ class Evaluation():
         patient_tags.append(pneumonia_type)
         assert pneumonia_type in ["common_pneu", "covid_pneu"], "Unknown type!"
         patient_tags.append("thick" if anno_sitk.GetSpacing()[-1] >= self.thickness_threshold else "thin")
-        single_patient = Patient(anno_sitk.GetSpacing()[-1], patient_tags)
+        single_patient = Patient(anno_file, anno_sitk.GetSpacing()[-1], patient_tags)
         for i in range(anno_ar.shape[0]):
             gt_labels, gt_num = skimage.measure.label(anno_ar[i,:,:], return_num=True, connectivity=2)
             pred_labels, pred_num = skimage.measure.label(pred[i,:,:], return_num=True, connectivity=2)
-            TP, FP = 0, 0
-            # for each gt 
-            # if iou>.5, TP+=1
-            # else FN+=1
-            # for each pred
-            # if iou<.5, FP+=1
-            # no TN?
-            gt_matched_pred = [[] for _ in range(gt_num)]
             gt_labels_repeated = np.repeat(np.expand_dims(gt_labels, 0), gt_num, 0) # num_of_gt_instances, H, W
-            gt_instance_mask = gt_labels_repeated == np.arange(start=1, stop=gt_num + 1).reshape([-1, 1, 1]) # num_of_gt_instances, H, W
+            gt_instance_mask = gt_labels_repeated == np.arange(start=1, stop=gt_num + 1).reshape([-1,1,1]) # num_of_gt_instances, H, W
             pred_labels_repeated = np.repeat(np.expand_dims(pred_labels, 0), gt_num, 0) # num_of_gt_instances, H, W
             itsect = pred_labels_repeated * gt_instance_mask
-
             for j in range(gt_num):
                 itsect_area = np.sum(itsect[j,:,:] > 0)
-                union = np.sum(gt_instance_mask[j,:,:]) - itsect_area
-                # print(np.sum(gt_instance_mask[j,:,:]))
+                gt_area = np.sum(gt_instance_mask[j,:,:])
+                union = gt_area - itsect_area
                 for k in range(pred_num):
                     # When using '==' op pay attention that whether the index is 0 or 1 based
                     if (itsect[j,:,:] == k + 1).any(): 
-                        # gt_matched_pred[j].append(k)
                         union += np.sum(pred_labels == k + 1)
                 iou = float(itsect_area) / union
-                if iou >= self.iou_thres:
-                    TP += 1
-                # else:
-                #     self.FN += 1
+                single_patient.lesion_info.append(
+                    Lesion(iou > self.iou_thres, gt_area, self.area_interval, i, iou))
             
             pred_labels_repeated = np.repeat(np.expand_dims(pred_labels, 0), pred_num, 0)
             pred_instance_mask = pred_labels_repeated == np.arange(start=1, stop=pred_num + 1).reshape([-1,1,1])
             gt_labels_repeated = np.repeat(np.expand_dims(gt_labels, 0), pred_num, 0)
             itsect = gt_labels_repeated * pred_instance_mask
-
             for j in range(pred_num):
                 itsect_area = np.sum(itsect[j,:,:] > 0)
-                union = np.sum(pred_instance_mask[j,:,:]) - itsect_area
+                pred_area = np.sum(pred_instance_mask[j,:,:])
+                union = pred_area - itsect_area
                 for k in range(gt_num):
                     if (itsect[j,:,:] == k + 1).any(): 
-                        # gt_matched_pred[j].append(k)
                         union += np.sum(gt_labels == k + 1)
                 iou = float(itsect_area) / union
-                if iou < self.iou_thres:
-                    FP += 1
-            res_dict = self.performance[pneumonia_type]
-            res_dict["TP"] += TP
-            res_dict["FP"] += FP
-            res_dict["num_gt"] += gt_num
-            res_dict["num_pred"] += pred_num
-            
+                single_patient.pred_info.append(
+                    PredInstance(iou > self.iou_thres, pred_area, self.area_interval, i, iou))
         self.dataset_stats.append(single_patient)
 
     def lesion_level_performance(self):
-        for key in self.performance:
-            print(f"\n{key}:")
-            rc = self.performance[key]["TP"] / self.performance[key]["num_gt"]
-            pr = (self.performance[key]["num_pred"] - self.performance[key]["FP"]) / self.performance[key]["num_pred"]
-            print(f"Recall: {rc:.4f}")
-            print(f"Precision: {pr:.4f}")
+        subsets = defaultdict(lambda : {"pred": [], "gt": []})
+        for p in self.dataset_stats:
+            for pneu in ["common_pneu", "covid_pneu"]:
+                if check_tags(p, pneu):
+                    for size in ["small", "middle", "large", "all"]:
+                        for pred in p.pred_info:
+                            if pred.size == size or size == "all":
+                                subsets[join_tags([pneu, size])]["pred"].append(pred)
+                        for gt in p.lesion_info:
+                            if gt.size == size or size == "all":
+                                subsets[join_tags([pneu, size])]["gt"].append(gt)
+        
+        for k, v in subsets.items():
+            rc = len([gt for gt in v["gt"] if gt.detected]) / len(v["gt"])
+            pr = len([pred for pred in v["pred"] if pred.matched]) / len(v["pred"])
+            print('\n' + k)
+            print(f"Recall: {rc:.4f}, Precision:{pr:.4f}")
+
+def pasrse_args():
+    parser = argparse.ArgumentParser("""""")
+    parser.add_argument("-o", "--output_dir", 
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/res/epoch_14.pkl")
+    parser.add_argument("-i", "--input_dir",
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_0604/"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_debug/"
+        )
+    return parser.parse_args()
 
 # store a couple res for debugging     
 if __name__ == "__main__":
@@ -180,22 +209,24 @@ if __name__ == "__main__":
     sys.path.insert(0, "../..")
     from fast.cf_mod.misc.utils import get_infos
 
-    evaluation = Evaluation(3.0)
-    # input_dir = "/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_debug/covid_pneu_datasets/da1be23026fe174be22445a33064a85f"
-    input_dir = "/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_debug/"
-    # im_dir = pj(input_dir, "da1be23026fe174be22445a33064a85f.nii.gz")
-    # gt_dir = pj(input_dir, "da1be23026fe174be22445a33064a85f_pred.nii.gz")
-    for root, dirs, files in os.walk(input_dir):
-        for f in files:
-            if f.endswith("_pred.nii.gz"):
-                pred_file = pj(root, f)
-                gt_file = pred_file.replace("_pred.nii.gz", "_000-label.nii.gz")
-                # im_file = pred_file.replace("_pred.nii.gz", ".nii.gz")
-                assert os.path.exists(pred_file)                
-                assert os.path.exists(gt_file)
-                # assert os.path.exists(im_file)
-                pred_ar = sitk.GetArrayFromImage(sitk.ReadImage(pred_file))
-                evaluation.eval_single_patient(gt_file, pred_ar)
-                print("hi")
-                break
-    evaluation.lesion_level_performance()
+    args = pasrse_args()
+    if os.path.exists(args.output_dir):
+        evaluation = pickle.load(open(args.output_dir, "br"))
+        evaluation.lesion_level_performance()
+    else:
+        evaluation = Evaluation()
+        for root, dirs, files in os.walk(args.input_dir):
+            for f in files:
+                if f.endswith("_pred.nii.gz"):
+                    pred_file = pj(root, f)
+                    gt_file = pred_file.replace("_pred.nii.gz", "_000-label.nii.gz")
+                    # im_file = pred_file.replace("_pred.nii.gz", ".nii.gz")
+                    assert os.path.exists(pred_file)                
+                    assert os.path.exists(gt_file)
+                    # assert os.path.exists(im_file)
+                    pred_ar = sitk.GetArrayFromImage(sitk.ReadImage(pred_file))
+                    evaluation.eval_single_patient(gt_file, pred_ar)
+                    print("hi")
+                    break
+        pickle.dump(evaluation, open(args.output_dir, "bw"))
+        evaluation.lesion_level_performance()

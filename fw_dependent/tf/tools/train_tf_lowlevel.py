@@ -311,19 +311,20 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
                 pj(debug_out, os.path.basename(img_file).replace(".nii.gz", "_pred.nii.gz")))
             shutil.copy(img_file, debug_out)
             shutil.copy(lab_file, debug_out)
-        # eval_object.eval_single_patient(lab_file, dis_prd)
-        # score = dice_coef_pat(dis_prd, lab_arr)
-        # if score < 0.3:
-        #     if args.viz:
-        #         viz_patient(img_arr_normed, dis_prd, lab_arr, 
-        #             pj(os.path.dirname(args.model_file), args.viz), img_file)
-        #     if log:
-        #         logging.info(os.path.dirname(lab_file))
-        #         logging.info(score)
-        #     else:
-        #         print(os.path.dirname(lab_file))
-        #         print(score)
-        # all_result.append([img_file, score, round(spacing[-1], 1)])
+        else:
+            # eval_object.eval_single_patient(lab_file, dis_prd)
+            score = dice_coef_pat(dis_prd, lab_arr)
+            if score < 0.3:
+                if args.viz:
+                    viz_patient(img_arr_normed, dis_prd, lab_arr, 
+                        pj(os.path.dirname(args.model_file), args.viz), img_file)
+                if log:
+                    logging.info(os.path.dirname(lab_file))
+                    logging.info(score)
+                else:
+                    print(os.path.dirname(lab_file))
+                    print(score)
+            all_result.append([img_file, score, round(spacing[-1], 1)])
         pbar.update(1)
     pbar.close()
     pickle.dump(all_result, open(args.pkl_dir, "bw"))
