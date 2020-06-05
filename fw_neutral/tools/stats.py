@@ -1,4 +1,4 @@
-import argparse, sys
+import argparse, os, sys
 import SimpleITK as sitk
 from tqdm import tqdm
 
@@ -20,7 +20,7 @@ def parse_args():
         )
     parser.add_argument("--output_dir", 
         default="/rdfs/fast/home/sunyingge/data/misc")
-    parser.add_argument("--res_pkl_file",
+    parser.add_argument("--res_pkl_file", type=str,
         default="/rdfs/fast/home/sunyingge/data/misc/set_stats.pkl"
         )
     parser.add_argument("--thickness_thres", default=3.0)
@@ -32,13 +32,13 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     data_paths = []
-    evaluation = Evaluation(args)
-    if not args.res_pkl_file:
+    evaluation = Evaluation(args.thickness_thres)
+    if args.res_pkl_file == None or not os.path.exists(args.res_pkl_file):
         for folder in args.testset_dir:
             data_paths += get_infos(folder)
         probar = tqdm(total=len(data_paths))
         for im_file, anno_file, _ in data_paths:
-            evaluation.eval_single_patient(anno_file)
+            evaluation.single_patient_stats(anno_file)
             probar.update(1)
         probar.close()
     evaluation.set_stats(args.res_pkl_file, args.output_dir, args.size_hist_range)

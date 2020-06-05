@@ -10,17 +10,17 @@ import SimpleITK as sitk
 EPS = 1.0e-8
 
 def pneu_type(file_dir, discard_neg=False):
-    if "covid_pneu" in im_file:
-        condition_cat = "covid_pneu"
-    elif "normal_pneu" in im_file:
-        condition_cat = "normal_pneu"
-    elif "healthy" in im_file:
+    if "covid_pneu" in file_dir:
+        return "covid_pneu"
+    elif "normal_pneu" in file_dir or "normal" in file_dir or "hard" in file_dir:
+        return "common_pneu"
+    elif "healthy" in file_dir:
         if discard_neg:
-            return False
-        condition_cat = "healthy"
+            return None
+        return "healthy"
     else:
         print("Unknown condition!")
-        return False
+        return None
 
 def get_infos(root_dir, link="-", isprint=True):
     get_paths = []
@@ -58,7 +58,11 @@ def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max
         multicat, discard_neg, norm_by_interval):
     im_file, anno_file = info_path
     # print(im_file)
-    
+    condition_cat = pneu_type(im_file, discard_neg)
+    if condition_cat == None:
+        return
+    elif condition_cat == "common_pneu":
+        condition_cat = "normal_pneu"
     try:
         patient_id = im_file.split('/')[-2]
         im_np = sitk.GetArrayFromImage(sitk.ReadImage(im_file, sitk.sitkFloat32))
@@ -186,6 +190,10 @@ class extra_processing():
             return np.array(im_stack)
 
     def batch_postprocess(self, pred_batch):
+        """
+            returns:
+                [C, H, W]
+        """
         pred_stack = []
         for i in range(pred_batch.shape[0]):
             if self.cfg.preprocess["cropping"]:

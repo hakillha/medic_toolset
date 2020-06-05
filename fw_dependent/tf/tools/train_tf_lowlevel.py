@@ -1,5 +1,5 @@
 import argparse, logging, os, sys, time
-import pickle, shutil
+import pickle, random, shutil
 import matplotlib.pyplot as plt
 import numpy as np
 import SimpleITK as sitk
@@ -18,8 +18,9 @@ from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
 from fw_neutral.utils.config import Config
-from fw_neutral.utils.data_proc import paths_from_data, im_normalize, extra_processing
+from fw_neutral.utils.data_proc import extra_processing, im_normalize, paths_from_data, pneu_type
 from fw_neutral.utils.viz import viz_patient
+from fw_neutral.utils.metrics import Evaluation
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -70,7 +71,8 @@ def parse_args():
         )
     parser.add_argument("--model_file",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0601_02/epoch_9.ckpt",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0602_1348_05/epoch_1.ckpt"
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0602_1348_05/epoch_1.ckpt"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/epoch_12.ckpt"
         )
     parser.add_argument("--pkl_dir",
         help="""If not provided, it will be generated from "model_file".""",
@@ -80,6 +82,7 @@ def parse_args():
     parser.add_argument("--epochs2eval", nargs='+', default=["6", "5"])
     parser.add_argument("--thickness_thres", default=3.0)
     parser.add_argument("--viz", help="Middle name of the visualization output directory.")
+    parser.add_argument("--eval_debug", action="store_true")
 
     return parser.parse_args()
     # So that this works with jupyter
@@ -200,7 +203,8 @@ def train(sess, args, cfg):
 def show_dice(all_res, log=False):
     stats = defaultdict(list)
     for res in all_res:
-        if 'covid_pneu_datasets' in res[0]:
+        pneumonia_type = pneu_type(res[0], False)
+        if pneumonia_type == "covid_pneu":
             if res[2] >= args.thickness_thres:
                 stats['covid'].append(res[1])
                 stats['thick'].append(res[1])
@@ -209,7 +213,7 @@ def show_dice(all_res, log=False):
                 stats['covid'].append(res[1])
                 stats['thin'].append(res[1])
                 stats['covid_thin'].append(res[1])
-        elif 'normal_pneu_datasets' in res[0]:
+        elif pneumonia_type == "common_pneu":
             if res[2] >= args.thickness_thres:
                 stats['normal'].append(res[1])
                 stats['thick'].append(res[1])
@@ -231,12 +235,17 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
             model: For eval during training.
             pkl_dir: Provided for an eval during training to overwrite the args.
     """
+    eval_object = Evaluation(args.thickness_thres)
     info_paths = []
     for folder in args.testset_dir:
         info_paths += get_infos(folder)
-    info_paths = sorted(info_paths, key=lambda info:info[0])
+    if args.eval_debug:
+        random.shuffle(info_paths)
+    else:
+        info_paths = sorted(info_paths, key=lambda info:info[0])
     all_result = []
-    if mode == "eval":
+
+    if mode == "eval": # This mode is deprecated
         model = tf_model(args, cfg)
         saver = tf.train.Saver()
         saver.restore(sess, args.model_file)
@@ -245,6 +254,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
     elif mode == "eval_multi":
         saver = tf.train.Saver()
         saver.restore(sess, args.model_file)
+
     pbar = tqdm(total=len(info_paths))
     if os.path.exists(args.pkl_dir):
         input("Result file already exists. Press enter to \
@@ -281,24 +291,39 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         if cfg.num_class == 1:
             dis_prd = dis_prd > 0.5
         else:
-            if "normal_pneu" in img_file:
+            pneumonia_type = pneu_type(img_file, False)
+            if pneumonia_type == "common_pneu":
                 cls_id = 2
-            elif "covid_pneu" in img_file:
+            elif pneumonia_type == "covid_pneu":
                 cls_id = 1
+            else:
+                raise Exception("Unknown condition!")
             dis_prd = np.argmax(dis_prd, -1) == cls_id
         dis_prd = ex_processing.batch_postprocess(dis_prd)
-        score = dice_coef_pat(dis_prd, lab_arr)
-        if score < 0.3:
-            if args.viz:
-                viz_patient(img_arr_normed, dis_prd, lab_arr, 
-                    pj(os.path.dirname(args.model_file), args.viz), img_file)
-            if log:
-                logging.info(os.path.dirname(lab_file))
-                logging.info(score)
-            else:
-                print(os.path.dirname(lab_file))
-                print(score)
-        all_result.append([img_file, score, round(spacing[-1], 1)])
+        if args.eval_debug:
+            pred_nii = sitk.GetImageFromArray(dis_prd)
+            pred_nii.CopyInformation(lab_ori)
+            im_dir_list = img_file.split('/')
+            debug_out = pj(os.path.dirname(args.model_file), "eval_debug", im_dir_list[-3], im_dir_list[-2])
+            if not os.path.exists(debug_out):
+                os.makedirs(debug_out)
+            sitk.WriteImage(pred_nii, 
+                pj(debug_out, os.path.basename(img_file).replace(".nii.gz", "_pred.nii.gz")))
+            shutil.copy(img_file, debug_out)
+            shutil.copy(lab_file, debug_out)
+        # eval_object.eval_single_patient(lab_file, dis_prd)
+        # score = dice_coef_pat(dis_prd, lab_arr)
+        # if score < 0.3:
+        #     if args.viz:
+        #         viz_patient(img_arr_normed, dis_prd, lab_arr, 
+        #             pj(os.path.dirname(args.model_file), args.viz), img_file)
+        #     if log:
+        #         logging.info(os.path.dirname(lab_file))
+        #         logging.info(score)
+        #     else:
+        #         print(os.path.dirname(lab_file))
+        #         print(score)
+        # all_result.append([img_file, score, round(spacing[-1], 1)])
         pbar.update(1)
     pbar.close()
     pickle.dump(all_result, open(args.pkl_dir, "bw"))
