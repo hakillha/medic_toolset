@@ -6,16 +6,17 @@ from collections import defaultdict
 from os.path import join as pj
 
 if __name__ == "__main__":
-    from data_proc import pneu_type
+    from data_proc import Pneu_type
 else:
-    from .data_proc import pneu_type
+    from .data_proc import Pneu_type
 
 class Patient():
-    def __init__(self, fname, thickness, tags):
+    def __init__(self, fname, thickness, tags, pneu_type):
         self.fname = fname
         self.thickness = thickness
         self.lesion_info = [] # list of Lesion() instances
         self.pred_info = []
+        self.pneu_type = pneu_type
         self.tags = defaultdict(bool)
         for tag in tags:
             self.tags[tag] = True
@@ -71,7 +72,12 @@ class Evaluation():
         self.area_interval = {
             "small": [0, 1000],
             "middle": [1000, 5000],
-            "large": [5000, 999999],
+            "large": [5000, 1e10],
+            "all": [0, 1e10]
+        }
+        self.class_map = {
+            "covid_pneu": 1,
+            "common_pneu": 2,
         }
 
     def subset_areas(self, tags):
@@ -89,7 +95,7 @@ class Evaluation():
         anno_sitk = sitk.ReadImage(anno_file, sitk.sitkInt16)
         anno_ar = sitk.GetArrayFromImage(anno_sitk) # anno_ar: [C, H, W]
         patient_tags = []
-        pneumonia_type = pneu_type(anno_file)
+        pneumonia_type = Pneu_type(anno_file)
         patient_tags.append(pneumonia_type)
         assert pneumonia_type in ["common_pneu", "covid_pneu"], "Unknown type!"
         patient_tags.append("thick" if anno_sitk.GetSpacing()[-1] >= self.thickness_threshold else "thin")
@@ -132,11 +138,11 @@ class Evaluation():
         anno_sitk = sitk.ReadImage(anno_file, sitk.sitkInt16)
         anno_ar = sitk.GetArrayFromImage(anno_sitk) # anno_ar: [C, H, W]
         patient_tags = []
-        pneumonia_type = pneu_type(anno_file)
+        pneumonia_type = Pneu_type(anno_file)
         patient_tags.append(pneumonia_type)
         assert pneumonia_type in ["common_pneu", "covid_pneu"], "Unknown type!"
         patient_tags.append("thick" if anno_sitk.GetSpacing()[-1] >= self.thickness_threshold else "thin")
-        single_patient = Patient(anno_file, anno_sitk.GetSpacing()[-1], patient_tags)
+        single_patient = Patient(anno_file, anno_sitk.GetSpacing()[-1], patient_tags, pneumonia_type)
         for i in range(anno_ar.shape[0]):
             gt_labels, gt_num = skimage.measure.label(anno_ar[i,:,:], return_num=True, connectivity=2)
             pred_labels, pred_num = skimage.measure.label(pred[i,:,:], return_num=True, connectivity=2)
@@ -190,14 +196,40 @@ class Evaluation():
             pr = len([pred for pred in v["pred"] if pred.matched]) / len(v["pred"])
             print('\n' + k)
             print(f"Recall: {rc:.4f}, Precision:{pr:.4f}")
+    
+    def dsstats2array(self):
+        gt_list, pred_list = [], []
+        for p in self.dataset_stats:
+            for gt in p.lesion_info:
+                gt_list.append([gt.area, gt.iou, self.class_map[p.pneu_type]])
+            for pred in p.pred_info:
+                pred_list.append([pred.area, pred.iou, self.class_map[p.pneu_type]])
+        return np.array(gt_list), np.array(pred_list) # [num_ins, num_attr]
+
+    def cal_pr_rc(self, in_array, class_v, area_v):
+        in_pick = np.ones_like(in_array[:,0])
+        in_pick = in_pick * (in_array[:,0] >= area_v[0]) * (in_array[:,0] < area_v[1])
+        in_pick = in_pick * (in_array[:,2] == class_v)
+        num_gt = np.sum(in_pick)
+        in_pick = in_pick * (in_array[:,1] >= self.iou_thres)
+        return np.sum(in_pick) / num_gt
+
+    def lesion_level_performance_np(self):
+        gt_ar, pred_ar = self.dsstats2array()
+        for class_k, class_v in self.class_map.items():
+            for area_k, area_v in self.area_interval.items():
+                rc = self.cal_pr_rc(gt_ar, class_v, area_v)
+                pr = self.cal_pr_rc(pred_ar, class_v, area_v)
+                print(f"\n{class_k}, {area_k}:")
+                print(f"Recall: {rc:.4f}, Precision:{pr:.4f}")
 
 def pasrse_args():
     parser = argparse.ArgumentParser("""""")
     parser.add_argument("-o", "--output_dir", 
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/res/epoch_14.pkl")
     parser.add_argument("-i", "--input_dir",
-        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_0604/"
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_debug/"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_0604/"
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_debug/"
         )
     return parser.parse_args()
 
@@ -212,7 +244,8 @@ if __name__ == "__main__":
     args = pasrse_args()
     if os.path.exists(args.output_dir):
         evaluation = pickle.load(open(args.output_dir, "br"))
-        evaluation.lesion_level_performance()
+        # evaluation.lesion_level_performance()
+        evaluation.lesion_level_performance_np()
     else:
         evaluation = Evaluation()
         for root, dirs, files in os.walk(args.input_dir):
@@ -229,4 +262,5 @@ if __name__ == "__main__":
                     print("hi")
                     break
         pickle.dump(evaluation, open(args.output_dir, "bw"))
-        evaluation.lesion_level_performance()
+        # evaluation.lesion_level_performance()
+        evaluation.lesion_level_performance_np()

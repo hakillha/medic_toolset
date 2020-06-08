@@ -9,7 +9,7 @@ import SimpleITK as sitk
 
 EPS = 1.0e-8
 
-def pneu_type(file_dir, discard_neg=False):
+def Pneu_type(file_dir, discard_neg=False):
     if "covid_pneu" in file_dir:
         return "covid_pneu"
     elif "normal_pneu" in file_dir or "normal" in file_dir or "hard" in file_dir:
@@ -22,37 +22,56 @@ def pneu_type(file_dir, discard_neg=False):
         print("Unknown condition!")
         return None
 
-def get_infos(root_dir, link="-", isprint=True):
-    get_paths = []
-    get_num = 0
-    for root, dirs, files_ in os.walk(root_dir, topdown=True):
-        files = []
-        for idx in files_:
-            if idx.endswith(".nii.gz"): files.append(idx)
-        if len(files)%2==0:
-            if len(files)>2:
-                img_file, lab_file = "", ""
-                for inx in files:
-                    if inx.endswith(f"{link}label.nii.gz"):
-                        lab_file = os.path.join(root, inx)
-                        img_file = lab_file.replace(f"{link}label.nii.gz", ".nii.gz")
-                        if os.path.exists(img_file):
-                            get_num += 1
-                            get_paths.append([img_file, lab_file])
-                        else:
-                            print(root)
-            if len(files) == 2:
-                img_file, lab_file = "", ""
-                for inx in files:
-                    if inx.endswith(f"{link}label.nii.gz"):
-                        lab_file = os.path.join(root, inx)
-                    elif inx.endswith(".nii.gz"):
-                        img_file = os.path.join(root, inx)
-                if len(img_file) and len(lab_file):
-                    get_num += 1
-                    get_paths.append([img_file, lab_file]) 
-    if isprint: print("all_picked: {}".format(get_num))
-    return get_paths 
+# def get_infos(root_dir, link="-", isprint=True):
+#     get_paths = []
+#     # get_num = 0
+#     for root, dirs, files_ in os.walk(root_dir, topdown=True):
+#         files = []
+#         for idx in files_:
+#             if idx.endswith(".nii.gz"): files.append(idx)
+#         if len(files)%2==0:
+#             if len(files)>2:
+#                 img_file, lab_file = "", ""
+#                 for inx in files:
+#                     if inx.endswith(f"{link}label.nii.gz"):
+#                         lab_file = os.path.join(root, inx)
+#                         img_file = lab_file.replace(f"{link}label.nii.gz", ".nii.gz")
+#                         if os.path.exists(img_file):
+#                             get_num += 1
+#                             get_paths.append([img_file, lab_file])
+#                         else:
+#                             print(root)
+#             if len(files) == 2:
+#                 # img_file, lab_file = "", ""
+#                 for inx in files:
+#                     if inx.endswith(f"{link}label.nii.gz"):
+#                         lab_file = os.path.join(root, inx)
+#                     elif inx.endswith(".nii.gz"):
+#                         img_file = os.path.join(root, inx)
+#                 # if len(img_file) and len(lab_file):
+#                 #     get_num += 1
+#                 #     get_paths.append([img_file, lab_file]) 
+#                 get_paths.append([img_file, lab_file]) 
+#     if isprint: print("all_picked: {}".format(len(get_paths)))
+#     return get_paths 
+
+def get_infos(root_dir):
+    sample_list = []
+    for root, dirs, files in os.walk(root_dir):
+        data_fs = []
+        for f in files:
+            if f.endswith(".nii.gz"):
+                data_fs.append(f)
+        assert len(data_fs) == 2, root
+        for f in data_fs:
+            # It's checked that all anno files end with this suffix
+            if f.endswith("label.nii.gz"):
+                gt_file = pj(root, f)
+            else:
+                im_file = pj(root, f)
+        sample_list.append([im_file, gt_file])
+    print(f"Num of samples: {len(sample_list)}")
+    return sample_list
 
 def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max_ct_1ch,
         multicat, discard_neg, norm_by_interval):

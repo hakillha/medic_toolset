@@ -18,7 +18,7 @@ from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
 from fw_neutral.utils.config import Config
-from fw_neutral.utils.data_proc import extra_processing, im_normalize, paths_from_data, pneu_type
+from fw_neutral.utils.data_proc import extra_processing, im_normalize, paths_from_data, Pneu_type
 from fw_neutral.utils.viz import viz_patient
 from fw_neutral.utils.metrics import Evaluation
 
@@ -28,10 +28,15 @@ def parse_args():
         You need to be careful with resuming while also changing the batch size 
         with this script since it would change how many steps to take to drop LR.
         
-        "eval" mode: 
+        "eval" mode mostly requires: 
             "--model_file": Checkpoint file.
             "--testset_dir"
             "--pkl_dir": Output.
+
+        "eval_multi" mode mostly requires:
+            "--mode_file"
+            "--pkl_dir": This is pretty much deprecated.
+            "--epochs2eval"
         """)
     parser.add_argument("mode", choices=["train", "eval", "eval_multi"])
     parser.add_argument("config", help="Config file.")
@@ -148,6 +153,9 @@ def train(sess, args, cfg):
     num_para = np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()])
     logging.info("Total number of trainable parameters: {:.3}M.\n".format(float(num_para)/1e6))
     if args.resume:
+        # So that an extended model can use pretrained weights?
+        # Add another args for this? Does this affect the (free) model checking otherwise?
+        # sess.run(tf.global_variables_initializer())
         saver.restore(sess, args.resume)
         # This needs to be changed if the naming rule changes
         epoch = int((os.path.basename(args.resume).split('.')[0]).split('_')[-1])
@@ -161,7 +169,7 @@ def train(sess, args, cfg):
         for i in range(num_batches):
             data_list = []
             for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
-                # Careful with a batch size that can't be divided evenly bt the number of gpus
+                # Careful with a batch size that can't be divided evenly by the number of gpus
                 # when at the end during a multi-GPU training
                 ex_process = extra_processing(cfg)
                 im_ar, ann_ar = ex_process.preprocess(train_dataset[j][0], train_dataset[j][1], True)
@@ -203,7 +211,7 @@ def train(sess, args, cfg):
 def show_dice(all_res, log=False):
     stats = defaultdict(list)
     for res in all_res:
-        pneumonia_type = pneu_type(res[0], False)
+        pneumonia_type = Pneu_type(res[0], False)
         if pneumonia_type == "covid_pneu":
             if res[2] >= args.thickness_thres:
                 stats['covid'].append(res[1])
@@ -291,7 +299,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         if cfg.num_class == 1:
             dis_prd = dis_prd > 0.5
         else:
-            pneumonia_type = pneu_type(img_file, False)
+            pneumonia_type = Pneu_type(img_file, False)
             if pneumonia_type == "common_pneu":
                 cls_id = 2
             elif pneumonia_type == "covid_pneu":
