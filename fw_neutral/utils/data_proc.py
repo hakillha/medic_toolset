@@ -1,7 +1,7 @@
-import glob, os, pickle
-from os.path import join as pj
-import random
+import glob, os, pickle, random
 random.seed(123)
+from collections import defaultdict
+from os.path import join as pj
 
 import cv2
 import numpy as np
@@ -9,13 +9,13 @@ import SimpleITK as sitk
 
 EPS = 1.0e-8
 
-def Pneu_type(file_dir, discard_neg=False):
+def Pneu_type(file_dir, include_healthy, discard_neg=False):
     if "covid_pneu" in file_dir:
         return "covid_pneu"
     elif "normal_pneu" in file_dir or "normal" in file_dir or "hard" in file_dir:
         return "common_pneu"
     elif "healthy" in file_dir:
-        if discard_neg:
+        if discard_neg and not include_healthy:
             return None
         return "healthy"
     else:
@@ -62,31 +62,33 @@ def get_infos(root_dir):
         for f in files:
             if f.endswith(".nii.gz"):
                 data_fs.append(f)
-        assert len(data_fs) == 2, root
         for f in data_fs:
             # It's checked that all anno files end with this suffix
             if f.endswith("label.nii.gz"):
                 gt_file = pj(root, f)
             else:
                 im_file = pj(root, f)
-        sample_list.append([im_file, gt_file])
+        if len(data_fs):
+            assert len(data_fs) == 2, root
+            sample_list.append([im_file, gt_file])
     print(f"Num of samples: {len(sample_list)}")
     return sample_list
 
-def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max_ct_1ch,
-        multicat, discard_neg, norm_by_interval):
+def extract_slice_single_file(info_path, out_dir, data_dir_suffix, min_ct_1ch, max_ct_1ch,
+        multicat, discard_neg, norm_by_interval, include_healthy, thickness_thres):
     im_file, anno_file = info_path
-    # print(im_file)
-    condition_cat = pneu_type(im_file, discard_neg)
+    stats = defaultdict(int)
+    condition_cat = Pneu_type(im_file, include_healthy, discard_neg)
     if condition_cat == None:
-        return
+        return None, None
     elif condition_cat == "common_pneu":
         condition_cat = "normal_pneu"
     try:
         patient_id = im_file.split('/')[-2]
-        im_np = sitk.GetArrayFromImage(sitk.ReadImage(im_file, sitk.sitkFloat32))
+        im_nii = sitk.ReadImage(im_file, sitk.sitkFloat32)
+        im_np = sitk.GetArrayFromImage(im_nii)
         ann_np = sitk.GetArrayFromImage(sitk.ReadImage(anno_file, sitk.sitkUInt16))
-        im_np = im_normalize(im_np, min_ct_1ch, max_ct_1ch, norm_by_interval)
+        im_np = im_normalize(im_np, [min_ct_1ch, max_ct_1ch], norm_by_interval)
         pos_index = ann_np >= 1
         if multicat:
             if condition_cat == "normal_pneu":
@@ -101,33 +103,42 @@ def extract_slice_single_file(info_path, out_dir, data_dir_post, min_ct_1ch, max
         pos_slice_mask = (ann_np > 0).any(axis=(-1, -2))
         pos_im, pos_ann = im_np[pos_slice_mask], ann_np[pos_slice_mask]
         for sli in range(pos_im.shape[0]):
-            save_dir = pj(out_dir, data_dir_post, condition_cat, patient_id, 'pos')
+            save_dir = pj(out_dir, data_dir_suffix, condition_cat, patient_id, 'pos')
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
             with open(pj(save_dir, f"{sli}.pkl"), "wb") as f:
                 pickle.dump({"im": pos_im[sli, ...], "mask": pos_ann[sli, ...]}, f)
 
-        if not discard_neg:
+        if not discard_neg or (include_healthy and condition_cat == "healthy"):
             neg_slice_mask = ~pos_slice_mask
             neg_im, neg_ann = im_np[neg_slice_mask], ann_np[neg_slice_mask]
             for sli in range(neg_im.shape[0]):
-                save_dir = pj(out_dir, data_dir_post, condition_cat, patient_id, 'neg')
+                save_dir = pj(out_dir, data_dir_suffix, condition_cat, patient_id, 'neg')
                 if not os.path.exists(save_dir):
                     os.makedirs(save_dir)
                 with open(pj(save_dir, f"{sli}.pkl"), "wb") as f:
                     pickle.dump({"im": neg_im[sli, ...], "mask": neg_ann[sli, ...]}, f)
+        
+        stats[condition_cat] = 1
+        thickness = "thick" if im_nii.GetSpacing()[-1] >= thickness_thres else "thin"
+        stats[thickness] = 1
+        stats[condition_cat + '_' + thickness] = 1
+        stats[condition_cat + '_pos_slices'] = pos_im.shape[0]
+        stats[condition_cat + '_neg_slices'] = im_np.shape[0] - pos_im.shape[0]
+        return im_file, stats
     except Exception as error:
         print(error)
+        return None, None
 
-def extract_slice_sequential(info_paths, out_dir, data_dir_post, min_ct_1ch, max_ct_1ch):
+def extract_slice_sequential(info_paths, out_dir, data_dir_suffix, min_ct_1ch, max_ct_1ch):
     for im_file, anno_file in info_paths:
         print(im_file)
-        extract_slice_single_file((im_file, anno_file), out_dir, data_dir_post, min_ct_1ch, max_ct_1ch)
+        extract_slice_single_file((im_file, anno_file), out_dir, data_dir_suffix, min_ct_1ch, max_ct_1ch)
         
-def paths_from_data(data_dir):
+def paths_from_data(data_dir, sample_set):
     sample_paths = []
     for root, dirs, files in os.walk(data_dir):
-        if "pos" in root:
+        if sample_set in root:
             sample_paths += glob.glob(pj(root, "*.pkl"))
     return sample_paths
 

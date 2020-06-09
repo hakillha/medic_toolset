@@ -480,13 +480,14 @@ class BaseDataset():
     def __init__(self, pos_paths, neg_paths=[], img_size=(256, 256), choice="all",
                     image_key="image", mask_key="mask",
                     preprocess=None, augmentation=None, proprocess=None,
-                    seed=999,
-                    ):
+                    seed=999, shuffle=True, pos_neg_ratio=4):
         assert choice.upper() in ["POS", "NEG", "ALL"], "Check The Parameter Choice"
-
+        if shuffle:
+            np.random.seed(seed)
         self.pos_paths      = pos_paths
-        self.neg_paths      = neg_paths
-        self.paths          = self.pos_paths + self.neg_paths
+        self.neg_paths = np.random.permutation(neg_paths).tolist() if shuffle else neg_paths
+        paths = self.pos_paths + self.neg_paths[:len(pos_paths) // pos_neg_ratio]
+        self.paths = np.random.permutation(paths).tolist() if shuffle else paths
         self.pos_length     = len(self.pos_paths)  
         self.neg_length     = len(self.neg_paths)
         self.length         = len(self.paths)
@@ -508,20 +509,26 @@ class BaseDataset():
     def _get_data(self, i):
         file_dict = pickle.load(open(self.paths[i], "rb"))
         img = file_dict[self.image_key]; lab = file_dict[self.mask_key]
+        # print(self.paths[i])
+        # if "neg" in self.paths[i]:
+        #     lab = np.expand_dims(lab, -1)
+
         # img = cv2.resize(img_, self.img_size, interpolation=cv2.INTER_LINEAR)
         # lab = cv2.resize(lab_, self.img_size, interpolation=cv2.INTER_NEAREST)
-#         assert img.shape == lab.shape, "Assure The Same Shape"
-        if self.preprocess:
-            if False: print("do preprocess")
-            sample = self.preprocess(image=img, mask=lab)
-            img, lab = sample["image"], sample["mask"]
-        if self.augmentation:
-            sample = self.augmentation(image=img, mask=lab)
-            img, lab= sample["image"], sample["mask"]
-        if self.proprocess:
-            if False: print("do proprocess")
-            sample = self.proprocess(image=img, mask=lab)
-            img, lab = sample["image"], sample["mask"]
+
+        # assert img.shape == lab.shape, f"Assure The Same Shape.\nImage: {img.shape}, Anno: {lab.shape}"
+        
+        # if self.preprocess:
+        #     if False: print("do preprocess")
+        #     sample = self.preprocess(image=img, mask=lab)
+        #     img, lab = sample["image"], sample["mask"]
+        # if self.augmentation:
+        #     sample = self.augmentation(image=img, mask=lab)
+        #     img, lab= sample["image"], sample["mask"]
+        # if self.proprocess:
+        #     if False: print("do proprocess")
+        #     sample = self.proprocess(image=img, mask=lab)
+        #     img, lab = sample["image"], sample["mask"]
 
         return img.astype(np.float32), lab.astype(np.uint8)
 

@@ -1,19 +1,25 @@
 {
-    "batch_size": 32,
-    "im_size": [256, 256],
+    "batch_size": 48,
+    "im_size": [384, 384],
     "max_epoch": 40,
     "num_class": 1,
+    "network":{
+        "name": "SEResUNet",
+        "reconstruct": false,
+        "weight_decay": 1e-4
+    },
     "optimizer": {
         "name": "Adam",
-        "epoch_to_drop_lr": [4, 8],
-        "lr": [1e-3, 5e-4, 25e-5]
+        "epoch_to_drop_lr": [12, 16],
+        "lr": [1e-3, 1e-4, 1e-5]
     },
-    "loss": "dice_loss",
-    "eval": {
-        "ct_interval": [-1200, 1800],
-        "norm_by_interval": true
-    },
+    "loss": "generalized_dice_loss",
     "preprocess": {
+        "normalize": {
+            "ct_interval": [-1200, 1800],
+            "norm_by_interval": true
+        },
+        "flip": true,
         "cropping": true,
         "cropping_ct_thres": 0.1,
         "cropping_train_randomness": 20,

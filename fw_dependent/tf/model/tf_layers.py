@@ -76,7 +76,7 @@ def build_loss(pred, input_im, input_ann, cfg):
             ce = tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map)
             loss = tf.reduce_mean(ce)
     if cfg.network["reconstruct"]:
-        loss += tf.losses.mean_squared_error(input_im, pred["recon_map"])
+        loss += .1 * tf.losses.mean_squared_error(input_im, pred["recon_map"])
     return loss
 
 def average_gradients(tower_grads):
@@ -99,32 +99,34 @@ def average_gradients(tower_grads):
 
 class tf_model():
     def __init__(self, args, cfg, gpus=None, num_batches=None):
-        self.input_dict = {}
-        self.input_dict["im"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_im")
-        if cfg.num_class == 1:
-            self.input_dict["anno"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
-        else:
-            if cfg.loss == "softmax":
-                self.input_dict["anno"] = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
-            elif cfg.loss == "sigmoid":
-                self.input_dict["anno"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], cfg.num_class + 1))
-        if args.mode == "train":   
-            # if gpus:
-            global_step = tf.get_variable("global_step", 
-                [], initializer=tf.constant_initializer(0), trainable=False, dtype=tf.int32)
-            # else:
-            #     global_step = tf.Variable(0, False) # For backward compatibility
-            self.global_step = global_step
-            assert num_batches, "Please provide batch size for training mode!"
-            steps = [num_batches * epoch_step for epoch_step in cfg.optimizer["epoch_to_drop_lr"]]
-            print(f"Steps to drop LR: {steps}")
-            self.learning_rate = tf.train.piecewise_constant(global_step, steps, cfg.optimizer["lr"])
-            optimizer = tf.train.AdamOptimizer(self.learning_rate)
-                        
+        with tf.device('/cpu:0'):
+            self.input_dict = {}
+            self.input_dict["im"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_im")
+            if cfg.num_class == 1:
+                self.input_dict["anno"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
+            else:
+                if cfg.loss == "softmax":
+                    self.input_dict["anno"] = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
+                elif cfg.loss == "sigmoid":
+                    self.input_dict["anno"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], cfg.num_class + 1))
+            if args.mode == "train":   
+                # if gpus:
+                global_step = tf.get_variable("global_step", 
+                    [], initializer=tf.constant_initializer(0), trainable=False, dtype=tf.int32)
+                # else:
+                #     global_step = tf.Variable(0, False) # For backward compatibility
+                self.global_step = global_step
+                assert num_batches, "Please provide batch size for training mode!"
+                steps = [num_batches * epoch_step for epoch_step in cfg.optimizer["epoch_to_drop_lr"]]
+                print(f"Steps to drop LR: {steps}")
+                self.learning_rate = tf.train.piecewise_constant(global_step, steps, cfg.optimizer["lr"])
+                optimizer = tf.train.AdamOptimizer(self.learning_rate)
+                    
         if gpus:
-            num_gpus = len(gpus)
-            im_split = tf.split(self.input_dict["im"], num_gpus, 0)
-            ann_split = tf.split(self.input_dict["anno"], num_gpus, 0)
+            with tf.device('/cpu:0'):
+                num_gpus = len(gpus)
+                im_split = tf.split(self.input_dict["im"], num_gpus, 0)
+                ann_split = tf.split(self.input_dict["anno"], num_gpus, 0)
             tower_grads, loss_list = [], []
             # Need this variable scope to make sure variables are given names 
             # to enable reuse, probably for build_loss()?

@@ -197,35 +197,59 @@ class Evaluation():
             print('\n' + k)
             print(f"Recall: {rc:.4f}, Precision:{pr:.4f}")
     
-    def dsstats2array(self):
-        gt_list, pred_list = [], []
-        for p in self.dataset_stats:
-            for gt in p.lesion_info:
-                gt_list.append([gt.area, gt.iou, self.class_map[p.pneu_type]])
-            for pred in p.pred_info:
-                pred_list.append([pred.area, pred.iou, self.class_map[p.pneu_type]])
-        return np.array(gt_list), np.array(pred_list) # [num_ins, num_attr]
+    def gen_seginstance_entries(self, patient):
+        gt_entries = [[gt.area, gt.iou, self.class_map[patient.pneu_type]] for gt in patient.lesion_info]
+        pred_entries = [[pred.area, pred.iou, self.class_map[patient.pneu_type]] for pred in patient.pred_info]
+        return gt_entries, pred_entries
+
+    def gen_filters(self, cls_filter=None, area_filter=None):
+        if cls_filter is None:
+            cls_filter = self.class_map.keys()
+        if area_filter is None:
+            area_filter = self.area_interval.keys()
+        filters = []
+        for cls_k in cls_filter:
+            for area_k in area_filter:
+                filters.append((cls_k, self.class_map[cls_k], area_k, self.area_interval[area_k]))
+        return filters
 
     def cal_pr_rc(self, in_array, class_v, area_v):
         in_pick = np.ones_like(in_array[:,0])
         in_pick = in_pick * (in_array[:,0] >= area_v[0]) * (in_array[:,0] < area_v[1])
         in_pick = in_pick * (in_array[:,2] == class_v)
-        num_gt = np.sum(in_pick)
+        num_total = np.sum(in_pick)
         in_pick = in_pick * (in_array[:,1] >= self.iou_thres)
-        return np.sum(in_pick) / num_gt
-
-    def lesion_level_performance_np(self):
-        gt_ar, pred_ar = self.dsstats2array()
-        for class_k, class_v in self.class_map.items():
-            for area_k, area_v in self.area_interval.items():
-                rc = self.cal_pr_rc(gt_ar, class_v, area_v)
-                pr = self.cal_pr_rc(pred_ar, class_v, area_v)
-                print(f"\n{class_k}, {area_k}:")
-                print(f"Recall: {rc:.4f}, Precision:{pr:.4f}")
+        return np.sum(in_pick) / num_total if num_total else None
+        
+    def ds_level_performance_np(self):
+        gt_list, pred_list = [], []
+        for p in self.dataset_stats:
+            gt_entries, pred_entries = self.gen_seginstance_entries(p)
+            gt_list += gt_entries
+            pred_list += pred_entries
+        gt_ar, pred_ar = np.array(gt_list), np.array(pred_list)
+        for class_k, class_v, area_k, area_v in self.gen_filters():
+            rc = self.cal_pr_rc(gt_ar, class_v, area_v)
+            pr = self.cal_pr_rc(pred_ar, class_v, area_v)
+            print(f"\n{class_k}, {area_k}:")
+            print(f"Recall: {rc:.4f}, Precision:{pr:.4f}, F1-score: {2 * rc * pr / (rc + pr):.4f}")
+    
+    def patient_level_pf(self):
+        for class_k, class_v, area_k, area_v in self.gen_filters():
+            rcs, prs = [], []
+            for p in self.dataset_stats:
+                gt_entries, pred_entries = self.gen_seginstance_entries(p)
+                rc = self.cal_pr_rc(np.array(gt_entries), class_v, area_v)
+                pr = self.cal_pr_rc(np.array(pred_entries), class_v, area_v)
+                if rc: rcs.append(rc)
+                if pr: prs.append(pr)
+            rc, pr = np.mean(rcs), np.mean(prs)
+            print(f"\n{class_k}, {area_k}:")
+            print(f"Recall: {rc:.4f}, Precision:{pr:.4f}, F1-score: {2 * rc * pr / (rc + pr):.4f}")
 
 def pasrse_args():
     parser = argparse.ArgumentParser("""""")
-    parser.add_argument("-o", "--output_dir", 
+    parser.add_argument("-o", "--output_dir", help="If the result already exists, it will be loaded instead.",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/res/epoch_14.pkl")
     parser.add_argument("-i", "--input_dir",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_0528_1357_35/eval_0604/"
@@ -238,14 +262,12 @@ if __name__ == "__main__":
     from os.path import join as pj
     import SimpleITK as sitk
 
-    sys.path.insert(0, "../..")
-    from fast.cf_mod.misc.utils import get_infos
-
     args = pasrse_args()
     if os.path.exists(args.output_dir):
         evaluation = pickle.load(open(args.output_dir, "br"))
         # evaluation.lesion_level_performance()
-        evaluation.lesion_level_performance_np()
+        # evaluation.ds_level_performance_np()
+        evaluation.patient_level_pf()
     else:
         evaluation = Evaluation()
         for root, dirs, files in os.walk(args.input_dir):
@@ -263,4 +285,5 @@ if __name__ == "__main__":
                     break
         pickle.dump(evaluation, open(args.output_dir, "bw"))
         # evaluation.lesion_level_performance()
-        evaluation.lesion_level_performance_np()
+        # evaluation.ds_level_performance_np()
+        evaluation.patient_level_pf()

@@ -30,8 +30,9 @@ def parse_args():
         
         "eval" mode mostly requires: 
             "--model_file": Checkpoint file.
+            
             "--testset_dir"
-            "--pkl_dir": Output.
+            "--pkl_dir": Output. Optional now.
 
         "eval_multi" mode mostly requires:
             "--mode_file"
@@ -51,8 +52,9 @@ def parse_args():
             You can also provide one that already exists to overwrite the automatical generated one.""",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNET_")
     parser.add_argument("--train_dir", help="Training set directory.",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
+        # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0519/",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0526/",
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0608/",
         )
     parser.add_argument("--batch_size", type=int,
         help="Provided here to enable easy overwritting (particularly useful for evaluation).")
@@ -104,18 +106,11 @@ def parse_args():
 
 def ini_training_set(args, cfg):
     print("==>>Training set: ")
-    # _, train_pos, _ = paths_for_dataset(args.train_dir,
-    #     flags=["train"],
-    #     seed=999,
-    #     isprint=True)
-    train_paths  = paths_from_data(args.train_dir)
-    np.random.seed(999)
-    train_paths = np.random.permutation(train_paths).tolist()
     print("++"*30)
-    print(f"Number of training samples: {len(train_paths)}")
-    train_dataset = BaseDataset(train_paths, [], img_size=cfg.im_size, choice="all",
-        image_key="im", mask_key="mask")
-    print(f"train_dataset: {len(train_dataset)}")
+    train_dataset = BaseDataset(paths_from_data(args.train_dir, "pos"), 
+        paths_from_data(args.train_dir, "neg"),
+        img_size=cfg.im_size, choice="all", image_key="im", mask_key="mask")
+    print(f"Number of training samples: {len(train_dataset)}")
     return train_dataset
 
 def train(sess, args, cfg):

@@ -34,16 +34,19 @@ You can think of this as running the first SSH and tell it to run another SSH on
 * Python dependencies/package directory: `/rdfs/data/python_shared/Linux`.
 
 ## Linux Cheatsheet
-* Count number of files recursively: `find DIR_NAME -type f | wc -l`
+* Count number of files recursively: `find $DIR -type f | wc -l`
 * Search: `find /rdfs/fast/home/sunyingge/anaconda3/envs/tf14/lib/python3.6/site-packages/tensorflow/ -name tf_upgrade_v2*`
 * `tar -czvf name_of_archive.tar.gz $DIR && rm -rf $DIR`: compress and remove a large number of files.
+* `ls -l --block-size=M/G $DIR`: File size.
 # Ideas
 * Regularization: weight decay/l2 norm loss  
 tensorflow.org/guide/migrate
 * Use the upgrade script to only upgrade the model module and write a new pipeline?
 * Loss weight to speed up training?
 
-# Note
+# Notes
+* Tensorflow official low-level multi-GPU example: github.com/tensorflow/models/tree/r1.10.0/tutorials/image/cifar10
+
 # Garage
 What need to be changed in `test_graph_disease.py`:  
 `info_paths`  
