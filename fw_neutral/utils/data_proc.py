@@ -164,11 +164,22 @@ class extra_processing():
             args:
                 im: [h, w]
         """
-        if self.cfg.preprocess["flip"] and training:
-            flip_rate = .5
-            if np.random.rand() < flip_rate:
-                im = np.flip(im, 1)
-                anno = np.flip(anno, 1)
+        if self.cfg.num_class == 1:
+            # to make it compatible with mutlicls label
+            anno = anno > 0 
+
+        if training:
+            # elif self.cfg.loss == "sigmoid":
+            #     ann_ar = np.repeat(anno[:,1,:,:,:], self.cfg.num_class + 1, -1)
+            #     all_cls_ids = np.ones(shape=ann_ar.shape)
+            #     for i in range(self.cfg.num_class + 1):
+            #         all_cls_ids[...,i] = all_cls_ids[...,i] * i
+            #     ann_ar = ann_ar == all_cls_ids
+            if self.cfg.preprocess["flip"]:
+                flip_rate = .5
+                if np.random.rand() < flip_rate:
+                    im = np.flip(im, 1)
+                    anno = np.flip(anno, 1)
 
         # Keep shape info in comments
         if self.cfg.preprocess["cropping"]:
@@ -194,30 +205,31 @@ class extra_processing():
             im = im[y1:y2,x1:x2]
             if training:
                 anno = anno[y1:y2,x1:x2]
-                return im, np.expand_dims(anno, -1)
-            else:
-                return im, (x1, y1)
+            ret = [im, anno if self.cfg.loss == "softmax" else np.expand_dims(anno, -1)]
+            return ret if training else ret + [(x1, y1)] # also need the tl coords during eval
         elif self.cfg.preprocess["resize"]:
             im = cv2.resize(im, self.cfg.im_size, interpolation=cv2.INTER_LINEAR)
             if training:
                 anno = cv2.resize(anno, self.cfg.im_size, interpolation=cv2.INTER_NEAREST)
-                return np.expand_dims(im, -1), np.expand_dims(anno, -1)
-            else:
-                return np.expand_dims(im, -1)
+            return np.expand_dims(im, -1), anno if self.cfg.loss == "softmax" else np.expand_dims(anno, -1)
     
     def batch_preprocess(self, im_batch, anno_batch, training):
-        im_stack = []
+        im_stack, anno_stack = [], []
         if training:
             pass
         else:
             for i in range(im_batch.shape[0]):
-                res = self.preprocess(im_batch[i,:,:], None, False)
+                res = self.preprocess(im_batch[i,:,:], anno_batch[i,:,:], False)
                 if self.cfg.preprocess["cropping"]:
                     im_stack.append(res[0])
-                    self.tl_list.append(res[1])
+                    anno_stack.append(res[1])
+                    # Record the tl coordinates of the crops in order to "paste" them back
+                    # We don't need to clear this list since every loop we create a
+                    # new extraprocessing instance
+                    self.tl_list.append(res[2])
                 elif self.cfg.preprocess["resize"]:
                     im_stack.append(res)
-            return np.array(im_stack)
+            return np.array(im_stack), np.array(anno_stack)
 
     def batch_postprocess(self, pred_batch):
         """
@@ -233,4 +245,4 @@ class extra_processing():
                 pred_stack.append(padded_res)
             elif self.cfg.preprocess["resize"]:
                 pred_stack.append(cv2.resize(pred_batch[i,:,:,0].astype(np.float32), self.og_shape, interpolation=cv2.INTER_NEAREST))
-        return np.array(pred_stack)
+        return np.expand_dims(np.array(pred_stack), -1)

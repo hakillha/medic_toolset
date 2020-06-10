@@ -247,6 +247,34 @@ class Evaluation():
             print(f"\n{class_k}, {area_k}:")
             print(f"Recall: {rc:.4f}, Precision:{pr:.4f}, F1-score: {2 * rc * pr / (rc + pr):.4f}")
 
+def show_dice(all_res, log=False):
+    stats = defaultdict(list)
+    for res in all_res:
+        pneumonia_type = Pneu_type(res[0], False)
+        if pneumonia_type == "covid_pneu":
+            if res[2] >= args.thickness_thres:
+                stats['covid'].append(res[1])
+                stats['thick'].append(res[1])
+                stats['covid_thick'].append(res[1])
+            elif res[2] < args.thickness_thres:
+                stats['covid'].append(res[1])
+                stats['thin'].append(res[1])
+                stats['covid_thin'].append(res[1])
+        elif pneumonia_type == "common_pneu":
+            if res[2] >= args.thickness_thres:
+                stats['normal'].append(res[1])
+                stats['thick'].append(res[1])
+                stats['normal_thick'].append(res[1])
+            elif res[2] < args.thickness_thres:
+                stats['normal'].append(res[1])
+                stats['thin'].append(res[1])
+                stats['normal_thin'].append(res[1])
+    for key in stats:
+        if log:
+            logging.info(f"{key}: {np.mean(np.array(stats[key]))}")
+        else:
+            print(f"{key}: {np.mean(np.array(stats[key]))}")
+
 def pasrse_args():
     parser = argparse.ArgumentParser("""""")
     parser.add_argument("-o", "--output_dir", help="If the result already exists, it will be loaded instead.",

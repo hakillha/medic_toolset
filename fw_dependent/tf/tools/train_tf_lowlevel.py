@@ -20,7 +20,7 @@ from fw_dependent.tf.model.tf_layers import tf_model
 from fw_neutral.utils.config import Config
 from fw_neutral.utils.data_proc import extra_processing, im_normalize, paths_from_data, Pneu_type
 from fw_neutral.utils.viz import viz_patient
-from fw_neutral.utils.metrics import Evaluation
+from fw_neutral.utils.metrics import Evaluation, show_dice
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -170,21 +170,10 @@ def train(sess, args, cfg):
                 im_ar, ann_ar = ex_process.preprocess(train_dataset[j][0], train_dataset[j][1], True)
                 data_list.append((im_ar, ann_ar))
             data_ar = np.array(data_list)
-            im_ar = data_ar[:,0,:,:,:]
-            if cfg.num_class == 1:
-                # to make it compatible with mutlicls label
-                ann_ar = data_ar[:,1,:,:,:] > 0 
-            elif cfg.loss == "softmax":
-                ann_ar = data_ar[:,1,:,:,0]
-            elif cfg.loss == "sigmoid":
-                ann_ar = np.repeat(data_ar[:,1,:,:,:], cfg.num_class + 1, -1)
-                all_cls_ids = np.ones(shape=ann_ar.shape)
-                for i in range(cfg.num_class + 1):
-                    all_cls_ids[...,i] = all_cls_ids[...,i] * i
-                ann_ar = ann_ar == all_cls_ids
             ret_loss, ret_lr, _, global_step = sess.run(
                 [model.loss, model.learning_rate, model.opt_op, model.global_step],
-                feed_dict={model.input_dict["im"]: im_ar, model.input_dict["anno"]: ann_ar,})
+                feed_dict={model.input_dict["im"]: data_ar[:,0,:,:,:], 
+                model.input_dict["anno"]: data_ar[:,1,:,:,:],})
             # if i % 5 == 0:
             logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss:.5f}, lr: {ret_lr:.8f}, global step: {global_step}")
         for _ in range(args.num_retry):
@@ -202,34 +191,6 @@ def train(sess, args, cfg):
         if args.eval_while_train and not args.gpus_to_use:
             evaluation("during_training", sess, args, cfg, model, ckpt_dir.replace(".ckpt", "_res.pkl"), log=True)
         epoch += 1
-
-def show_dice(all_res, log=False):
-    stats = defaultdict(list)
-    for res in all_res:
-        pneumonia_type = Pneu_type(res[0], False)
-        if pneumonia_type == "covid_pneu":
-            if res[2] >= args.thickness_thres:
-                stats['covid'].append(res[1])
-                stats['thick'].append(res[1])
-                stats['covid_thick'].append(res[1])
-            elif res[2] < args.thickness_thres:
-                stats['covid'].append(res[1])
-                stats['thin'].append(res[1])
-                stats['covid_thin'].append(res[1])
-        elif pneumonia_type == "common_pneu":
-            if res[2] >= args.thickness_thres:
-                stats['normal'].append(res[1])
-                stats['thick'].append(res[1])
-                stats['normal_thick'].append(res[1])
-            elif res[2] < args.thickness_thres:
-                stats['normal'].append(res[1])
-                stats['thin'].append(res[1])
-                stats['normal_thin'].append(res[1])
-    for key in stats:
-        if log:
-            logging.info(f"{key}: {np.mean(np.array(stats[key]))}")
-        else:
-            print(f"{key}: {np.mean(np.array(stats[key]))}")
 
 def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
     """
@@ -267,8 +228,6 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         try:
             img_ori,  lab_ori  = sitk.ReadImage(img_file, sitk.sitkFloat32), sitk.ReadImage(lab_file, sitk.sitkInt16)
             img_arr,  lab_arr  = sitk.GetArrayFromImage(img_ori), sitk.GetArrayFromImage(lab_ori)
-            # This converts all positive pixels to 1 regardless of their exact class
-            lab_arr  = np.asarray(lab_arr > 0, dtype=np.uint8)
         except:
             continue
         depth, ori_shape = img_arr.shape[0], img_arr.shape[1:]
@@ -276,8 +235,8 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         img_arr_normed = im_normalize(img_arr, cfg.preprocess["normalize"]["ct_interval"], 
             cfg.preprocess["normalize"]["norm_by_interval"])
         ex_processing = extra_processing(cfg, og_shape=ori_shape[::-1])
-        dis_arr = ex_processing.batch_preprocess(img_arr_normed, None, False)
-        
+        dis_arr, lab_arr = ex_processing.batch_preprocess(img_arr_normed, lab_arr, False)
+
         pred_ = []
         segs = cfg.batch_size
         assert isinstance(segs, int) and (segs>0) & (segs<70), "Please" 
