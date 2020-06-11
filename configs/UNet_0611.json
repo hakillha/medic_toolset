@@ -1,0 +1,31 @@
+{
+    "batch_size": 10,
+    "im_size": [384, 384],
+    "max_epoch": 40,
+    "num_class": 1,
+    "trainset":{
+        "pn_ratio": 0
+    },
+    "preprocess": {
+        "normalize": {
+            "ct_interval": [-1024, 2048],
+            "norm_by_interval": true
+        },
+        "flip": true,
+        "cropping": true,
+        "cropping_ct_thres": 0.1,
+        "cropping_train_randomness": 20,
+        "resize": false
+    },
+    "network":{
+        "name": "UNet",
+        "reconstruct": false,
+        "weight_decay": 1e-4
+    },
+    "loss": "hbloss_gendice_ce",
+    "optimizer": {
+        "name": "Adam",
+        "epoch_to_drop_lr": [12, 16],
+        "lr": [1e-3, 1e-4, 1e-5]
+    }
+}

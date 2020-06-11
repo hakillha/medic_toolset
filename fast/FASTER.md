@@ -46,10 +46,10 @@ tensorflow.org/guide/migrate
 
 # Notes
 * Tensorflow official low-level multi-GPU example: github.com/tensorflow/models/tree/r1.10.0/tutorials/image/cifar10
-* Tensorpack dependencies:
+* tensorpack-0.10.1 dependencies:
     * msgpack-1.0.0
     * tabulate-0.8.7
-    
+    * msgpack-numpy-0.4.6
 
 # Garage
 What need to be changed in `test_graph_disease.py`:  

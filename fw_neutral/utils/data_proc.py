@@ -55,7 +55,8 @@ def Pneu_type(file_dir, include_healthy, discard_neg=False):
 #     if isprint: print("all_picked: {}".format(len(get_paths)))
 #     return get_paths 
 
-def get_infos(root_dir):
+def get_infos(root_dir, output=False):
+    assert os.path.exists(root_dir), "Data directory doesn't exist!"
     sample_list = []
     for root, dirs, files in os.walk(root_dir):
         data_fs = []
@@ -66,11 +67,17 @@ def get_infos(root_dir):
             # It's checked that all anno files end with this suffix
             if f.endswith("label.nii.gz"):
                 gt_file = pj(root, f)
+            elif f.endswith("_pred.nii.gz"):
+                res_file = pj(root, f)
             else:
                 im_file = pj(root, f)
         if len(data_fs):
-            assert len(data_fs) == 2, root
-            sample_list.append([im_file, gt_file])
+            if output:
+                assert len(data_fs) == 3, root
+                sample_list.append([im_file, gt_file, res_file])
+            else:
+                assert len(data_fs) == 2, root
+                sample_list.append([im_file, gt_file])
     print(f"Num of samples: {len(sample_list)}")
     return sample_list
 
@@ -159,7 +166,7 @@ class extra_processing():
         self.tl_list = []
         self.og_shape = og_shape
 
-    def preprocess(self, im, anno, training):
+    def preprocess(self, im, anno, training=True):
         """
             args:
                 im: [h, w]

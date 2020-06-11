@@ -68,6 +68,9 @@ def build_loss(pred, input_im, input_ann, cfg):
         elif cfg.loss == "hbloss_dice_ce":
             ce = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map))
             loss = dice_loss(seg_map, input_ann) + .1 * ce
+        elif cfg.loss == "hbloss_gendice_ce":
+            ce = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map))
+            loss = generalized_dice_loss(seg_map, input_ann) + .1 * ce
     else:
         if cfg.loss == "softmax":
             ce = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=input_ann, logits=seg_map)
@@ -77,6 +80,8 @@ def build_loss(pred, input_im, input_ann, cfg):
             loss = tf.reduce_mean(ce)
     if cfg.network["reconstruct"]:
         loss += .1 * tf.losses.mean_squared_error(input_im, pred["recon_map"])
+    if cfg.network["weight_decay"]:
+        loss += tf.add_n(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
     return loss
 
 def average_gradients(tower_grads):

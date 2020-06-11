@@ -13,12 +13,12 @@ from tqdm import tqdm
 sys.path.insert(0, "../../..") 
 # from fast.cf_mod.misc.data_tools import BaseDataset, paths_for_dataset
 from fast.cf_mod.misc.data_tools import BaseDataset
-from fast.cf_mod.misc.utils import get_infos
+# from fast.cf_mod.misc.utils import get_infos
 from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
 from fw_neutral.utils.config import Config
-from fw_neutral.utils.data_proc import extra_processing, im_normalize, paths_from_data, Pneu_type
+from fw_neutral.utils.data_proc import extra_processing, im_normalize, paths_from_data, Pneu_type, get_infos
 from fw_neutral.utils.viz import viz_patient
 from fw_neutral.utils.metrics import Evaluation, show_dice
 
@@ -73,8 +73,9 @@ def parse_args():
 
     # Eval mode related
     parser.add_argument("--testset_dir", nargs='+',
-        default=["/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/normal_pneu_datasets",
-        "/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/covid_pneu_datasets"]
+        # default=["/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/normal_pneu_datasets",
+        # "/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/0519/covid_pneu_datasets"]
+        default=["/rdfs/fast/home/sunyingge/data/COV_19/0508/TestSet/healthy_datasets"]
         )
     parser.add_argument("--model_file",
         # default="/rdfs/fast/home/sunyingge/data/models/workdir_0522/SEResUNet_0601_02/epoch_9.ckpt",
@@ -89,7 +90,7 @@ def parse_args():
     parser.add_argument("--epochs2eval", nargs='+', default=["6", "5"])
     parser.add_argument("--thickness_thres", default=3.0)
     parser.add_argument("--viz", help="Middle name of the visualization output directory.")
-    parser.add_argument("--eval_debug", action="store_true")
+    parser.add_argument("--eval_debug", help="A eval debug output dir specifier.")
 
     return parser.parse_args()
     # So that this works with jupyter
@@ -207,8 +208,6 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         random.shuffle(info_paths)
     else:
         info_paths = sorted(info_paths, key=lambda info:info[0])
-    all_result = []
-
     if mode == "eval": # This mode is deprecated
         model = tf_model(args, cfg)
         saver = tf.train.Saver()
@@ -223,6 +222,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
     if os.path.exists(args.pkl_dir):
         input("Result file already exists. Press enter to \
             continue and overwrite it when inference is done...")
+    all_result = []
     for info in info_paths:
         img_file, lab_file = info[0:2]
         try:
@@ -231,6 +231,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         except:
             continue
         depth, ori_shape = img_arr.shape[0], img_arr.shape[1:]
+        pneumonia_type = Pneu_type(img_file, False)
         spacing = img_ori.GetSpacing()
         img_arr_normed = im_normalize(img_arr, cfg.preprocess["normalize"]["ct_interval"], 
             cfg.preprocess["normalize"]["norm_by_interval"])
@@ -253,7 +254,6 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         if cfg.num_class == 1:
             dis_prd = dis_prd > 0.5
         else:
-            pneumonia_type = Pneu_type(img_file, False)
             if pneumonia_type == "common_pneu":
                 cls_id = 2
             elif pneumonia_type == "covid_pneu":
@@ -266,11 +266,13 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
             pred_nii = sitk.GetImageFromArray(dis_prd)
             pred_nii.CopyInformation(lab_ori)
             im_dir_list = img_file.split('/')
-            debug_out = pj(os.path.dirname(args.model_file), "eval_debug", im_dir_list[-3], im_dir_list[-2])
+            debug_out = pj(os.path.dirname(args.model_file), args.eval_debug, 
+                '_'.join([pneumonia_type] + im_dir_list[-5:-1]))
             if not os.path.exists(debug_out):
                 os.makedirs(debug_out)
-            sitk.WriteImage(pred_nii, 
-                pj(debug_out, os.path.basename(img_file).replace(".nii.gz", "_pred.nii.gz")))
+            out_niifile = pj(debug_out, os.path.basename(img_file).replace(".nii.gz", "_pred.nii.gz"))
+            assert not os.path.exists(out_niifile) # Otherwise existing files can be appended
+            sitk.WriteImage(pred_nii, out_niifile)
             shutil.copy(img_file, debug_out)
             shutil.copy(lab_file, debug_out)
         else:
