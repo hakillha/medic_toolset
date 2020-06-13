@@ -91,7 +91,7 @@ def UpSEResidualBlock(x1,x2,filters,reduction,stride,name_scope):
         out=tf.nn.leaky_relu(out)
         return out 
     
-def SEResUNet(x, cfg, num_classes=1, reduction=8, name_scope="SEResUNet"):
+def SEResUNet(x, cfg, training=True, num_classes=1, reduction=8, name_scope="SEResUNet"):
     wd = tf.keras.regularizers.l2(cfg.network["weight_decay"]) if cfg.network["weight_decay"] else None
     with tf.variable_scope(name_scope, regularizer=wd):
         num_channels=[16,32,64,128,256]

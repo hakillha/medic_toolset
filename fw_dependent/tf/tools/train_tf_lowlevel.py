@@ -18,7 +18,7 @@ from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
 from fw_neutral.utils.config import Config
-from fw_neutral.utils.data_proc import extra_processing, im_normalize, paths_from_data, Pneu_type, get_infos
+from fw_neutral.utils.data_proc import extra_processing, paths_from_data, Pneu_type, get_infos
 from fw_neutral.utils.viz import viz_patient
 from fw_neutral.utils.metrics import Evaluation, show_dice
 
@@ -117,7 +117,7 @@ def ini_training_set(args, cfg):
 def train(sess, args, cfg):
     train_dataset = ini_training_set(args, cfg)
     num_batches = len(train_dataset) // cfg.batch_size
-    model = tf_model(args, cfg, args.gpus_to_use, num_batches)
+    model = tf_model(cfg, False, args.gpus_to_use, num_batches)
     if args.resume:
         output_dir = os.path.dirname(args.resume)
     else:
@@ -173,8 +173,8 @@ def train(sess, args, cfg):
             data_ar = np.array(data_list)
             ret_loss, ret_lr, _, global_step = sess.run(
                 [model.loss, model.learning_rate, model.opt_op, model.global_step],
-                feed_dict={model.input_dict["im"]: data_ar[:,0,:,:,:], 
-                model.input_dict["anno"]: data_ar[:,1,:,:,:],})
+                feed_dict={model.in_im: data_ar[:,0,:,:,:], 
+                model.in_gt: data_ar[:,1,:,:,:],})
             # if i % 5 == 0:
             logging.info(f"Epoch progress: {i + 1} / {num_batches}, loss: {ret_loss:.5f}, lr: {ret_lr:.8f}, global step: {global_step}")
         for _ in range(args.num_retry):
@@ -197,7 +197,8 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
     """
         Args:
             mode: ["during_training", "eval", "eval_mutli"]
-            model: For eval during training.
+            model: For eval during training. You also need to create one at the
+                very beginning of the eval in "eval_multi" mode.
             pkl_dir: Provided for an eval during training to overwrite the args.
     """
     eval_object = Evaluation(args.thickness_thres)
@@ -209,7 +210,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
     else:
         info_paths = sorted(info_paths, key=lambda info:info[0])
     if mode == "eval": # This mode is deprecated
-        model = tf_model(args, cfg)
+        model = tf_model(cfg, False)
         saver = tf.train.Saver()
         saver.restore(sess, args.model_file)
     elif mode == "during_training":
@@ -233,10 +234,8 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         depth, ori_shape = img_arr.shape[0], img_arr.shape[1:]
         pneumonia_type = Pneu_type(img_file, False)
         spacing = img_ori.GetSpacing()
-        img_arr_normed = im_normalize(img_arr, cfg.preprocess["normalize"]["ct_interval"], 
-            cfg.preprocess["normalize"]["norm_by_interval"])
         ex_processing = extra_processing(cfg, og_shape=ori_shape[::-1])
-        dis_arr, lab_arr = ex_processing.batch_preprocess(img_arr_normed, lab_arr, False)
+        dis_arr, lab_arr = ex_processing.batch_preprocess(img_arr, lab_arr, False)
 
         pred_ = []
         segs = cfg.batch_size
@@ -244,9 +243,9 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         step = depth//segs + 1 if depth%segs != 0 else depth//segs
         for ii in range(step):
             if ii != step-1:
-                pp = sess.run(model.pred["seg_map"], feed_dict={model.input_dict["im"]: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
+                pp = sess.run(model.pred["seg_map"], feed_dict={model.in_im: dis_arr[ii*segs:(ii+1)*segs, ...]}) #[0]
             else:
-                pp = sess.run(model.pred["seg_map"], feed_dict={model.input_dict["im"]: dis_arr[ii*segs:, ...]}) #[0]
+                pp = sess.run(model.pred["seg_map"], feed_dict={model.in_im: dis_arr[ii*segs:, ...]}) #[0]
             pp = 1/ (1 + np.exp(-pp)) # this only works for single class
             pred_.append(pp)
         dis_prd = np.concatenate(pred_, axis=0)
@@ -280,7 +279,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
             score = dice_coef_pat(dis_prd, lab_arr)
             if score < 0.3:
                 if args.viz:
-                    viz_patient(img_arr_normed, dis_prd, lab_arr, 
+                    viz_patient(img_arr, dis_prd, lab_arr, 
                         pj(os.path.dirname(args.model_file), args.viz), img_file)
                 if log:
                     logging.info(os.path.dirname(lab_file))
@@ -292,7 +291,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         pbar.update(1)
     pbar.close()
     pickle.dump(all_result, open(args.pkl_dir, "bw"))
-    show_dice(all_result, log=log)
+    show_dice(all_result, args.thickness_thres, log=log)
 
 if __name__ == "__main__":
     args = parse_args()
@@ -313,7 +312,7 @@ if __name__ == "__main__":
     elif args.mode == "eval":
         evaluation("eval", sess, args, cfg)
     elif args.mode == "eval_multi":
-        model = tf_model(args, cfg)
+        model = tf_model(cfg, False)
         for epoch in args.epochs2eval:
             args.model_file = pj(os.path.dirname(args.model_file), f"epoch_{epoch}.ckpt")
             args.pkl_dir = pj(os.path.dirname(args.pkl_dir), f"epoch_{epoch}_res.pkl")

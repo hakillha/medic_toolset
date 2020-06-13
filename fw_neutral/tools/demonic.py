@@ -56,7 +56,7 @@ def parse_args():
     parser.add_argument("--out_dir",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0516",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Test_multicat_0519",
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0608",
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0613",
     )
     parser.add_argument("--thickness_thres", default=3.0)
     parser.add_argument("--multicat", action="store_true", default=True)

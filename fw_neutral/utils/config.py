@@ -22,7 +22,7 @@ class Config():
         self.network = {
             "name": "SEResUNet", 
             "reconstruct": False,
-            "weight_decay": None
+            "weight_decay": False,
         }
         self.optimizer = None
         self.loss = None

@@ -4,10 +4,14 @@ import numpy as np
 from os.path import join as pj
 
 def viz_patient(im, output_mask, gt_mask, out_dir, im_fname, alpha=.1):
+    """
+        im: [C, H, W]
+    """
     out_dir = pj(out_dir, os.path.basename(im_fname).split('.')[0])
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     plt.gcf().set_size_inches(14.0, 14.0)
+    im = np.expand_dims(im, -1)
     for i in range(im.shape[0]):
         im_slice = np.repeat(im[i], 3, -1)
         plt.imshow(im_slice)

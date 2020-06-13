@@ -1,3 +1,5 @@
+# Changelog
+
 # Task
 ## Multiclass segmentation
 2020/05/18: Covid pneu is labeled with 1 and common pneu is labeled with 2 now.

@@ -1,5 +1,5 @@
 {
-    "batch_size": 10,
+    "batch_size": 8,
     "im_size": [384, 384],
     "max_epoch": 40,
     "num_class": 1,
@@ -20,9 +20,9 @@
     "network":{
         "name": "UNet",
         "reconstruct": false,
-        "weight_decay": 1e-4
+        "weight_decay": false
     },
-    "loss": "hbloss_gendice_ce",
+    "loss": "dice_loss",
     "optimizer": {
         "name": "Adam",
         "epoch_to_drop_lr": [12, 16],

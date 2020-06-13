@@ -1,6 +1,9 @@
 import tensorflow as tf
 
-from .ASEUNet import SEResUNet
+import sys
+sys.path.insert(0, "../../..")
+from fw_dependent.tf.model.ASEUNet import SEResUNet
+from fw_dependent.tf.model.UNet import UNet
 
 def hbloss_dice_focal_v0(pred, input_ann):
     prob = tf.math.sigmoid(pred)
@@ -67,7 +70,7 @@ def build_loss(pred, input_im, input_ann, cfg):
             loss = dice_loss(seg_map, input_ann) + .5 * focal_loss(seg_map, input_ann)
         elif cfg.loss == "hbloss_dice_ce":
             ce = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map))
-            loss = dice_loss(seg_map, input_ann) + .1 * ce
+            loss = dice_loss(seg_map, input_ann) + .5 * ce
         elif cfg.loss == "hbloss_gendice_ce":
             ce = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=input_ann, logits=seg_map))
             loss = generalized_dice_loss(seg_map, input_ann) + .1 * ce
@@ -103,18 +106,17 @@ def average_gradients(tower_grads):
     return average_grads
 
 class tf_model():
-    def __init__(self, args, cfg, gpus=None, num_batches=None):
+    def __init__(self, cfg, training, gpus=None, num_batches=None):
         with tf.device('/cpu:0'):
-            self.input_dict = {}
-            self.input_dict["im"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_im")
+            self.in_im = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_im")
             if cfg.num_class == 1:
-                self.input_dict["anno"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
+                self.in_gt = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1))
             else:
                 if cfg.loss == "softmax":
-                    self.input_dict["anno"] = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
+                    self.in_gt = tf.placeholder(tf.int32, shape=(None, cfg.im_size[0], cfg.im_size[1]))
                 elif cfg.loss == "sigmoid":
-                    self.input_dict["anno"] = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], cfg.num_class + 1))
-            if args.mode == "train":   
+                    self.in_gt = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], cfg.num_class + 1))
+            if training:   
                 # if gpus:
                 global_step = tf.get_variable("global_step", 
                     [], initializer=tf.constant_initializer(0), trainable=False, dtype=tf.int32)
@@ -130,8 +132,8 @@ class tf_model():
         if gpus:
             with tf.device('/cpu:0'):
                 num_gpus = len(gpus)
-                im_split = tf.split(self.input_dict["im"], num_gpus, 0)
-                ann_split = tf.split(self.input_dict["anno"], num_gpus, 0)
+                im_split = tf.split(self.in_im, num_gpus, 0)
+                ann_split = tf.split(self.in_gt, num_gpus, 0)
             tower_grads, loss_list = [], []
             # Need this variable scope to make sure variables are given names 
             # to enable reuse, probably for build_loss()?
@@ -143,18 +145,18 @@ class tf_model():
                             # These 2 are internal and not exposed
                             input_im, input_ann = im_split[i], ann_split[i]
                             if cfg.num_class == 1:
-                                pred = SEResUNet(input_im, 1, 8, "SEResUNet", cfg)
+                                pred = SEResUNet(input_im, cfg, True, 1, 8, "SEResUNet")
                             else:
                                 # not supported yet
                                 sys.exit()
-                            if args.mode == "train":
+                            if training:
                                 loss = build_loss(pred, input_im, input_ann, cfg)
                                 loss_list.append(loss)
                                 # return var and its corresponding grad
                                 grad = optimizer.compute_gradients(loss)
                                 tower_grads.append(grad)
                             # tf.get_variable_scope().reuse_variables()
-            if args.mode == "train":         
+            if training:         
                 mean_grad = average_gradients(tower_grads)
                 # Aren't these 2 the same thing? (UPDATE_OPS-applying gradients)
                 with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
@@ -162,11 +164,46 @@ class tf_model():
                 self.loss = tf.add_n(loss_list)
         else:
             if cfg.num_class == 1:
-                self.pred = SEResUNet(self.input_dict["im"], num_classes=1, reduction=8, name_scope="SEResUNet", cfg=cfg)
+                self.pred = SEResUNet(self.in_im, cfg, True, 1, 8, "SEResUNet")
             else:
-                self.pred = SEResUNet(self.input_dict["im"], num_classes=cfg.num_class + 1, reduction=8, name_scope="SEResUNet", cfg=cfg)
-            if args.mode == "train": 
-                self.loss = build_loss(self.pred, self.input_dict["im"], self.input_dict["anno"], cfg) 
+                self.pred = SEResUNet(self.in_im, cfg, cfg.num_class + 1, 8, "SEResUNet")
+            if training: 
+                self.loss = build_loss(self.pred, self.in_im, self.in_gt, cfg) 
                 self.opt_op = optimizer.minimize(self.loss, global_step=global_step)
-                
 
+def choose_model(cfg):
+    MODEL_MAP = {
+        "SEResUNet": SEResUNet,
+        "UNet": UNet
+    }
+    return MODEL_MAP[cfg.network["name"]]
+
+class tf_model_v2():
+    def __init__(self, cfg, training=True):
+        with tf.device("/cpu:0"):
+            self.in_im = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_im")
+            self.in_gt = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_gt")
+        model_class = choose_model(cfg)
+        self.pred = model_class(self.in_im, cfg, training)
+        # self.prob = tf.math.sigmoid(self.pred["seg_map"]) 
+
+# Test
+if __name__ == "__main__":
+    import os
+    import numpy as np
+    from fw_neutral.utils.config import Config
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    cfg = Config()
+    # cfg.load_from_json("/rdfs/fast/home/sunyingge/pt_ground/configs/UNet_0611.json")
+    cfg.load_from_json("/rdfs/fast/home/sunyingge/pt_ground/configs/SEResUNet_0611.json")
+    model = tf_model_v2(cfg)
+    config = tf.ConfigProto(allow_soft_placement=True)
+    config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.95
+    sess = tf.Session(config=config)
+    sess.run(tf.global_variables_initializer())
+    res_list = sess.run([model.pred["seg_map"]],
+        feed_dict={model.in_im: np.random.normal(size=(1, 384, 384, 1)), 
+            model.in_gt: np.random.normal(size=(1, 384, 384, 1))})
+    for res in res_list:
+        print(res.shape)

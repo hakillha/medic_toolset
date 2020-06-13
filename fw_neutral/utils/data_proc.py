@@ -95,7 +95,7 @@ def extract_slice_single_file(info_path, out_dir, data_dir_suffix, min_ct_1ch, m
         im_nii = sitk.ReadImage(im_file, sitk.sitkFloat32)
         im_np = sitk.GetArrayFromImage(im_nii)
         ann_np = sitk.GetArrayFromImage(sitk.ReadImage(anno_file, sitk.sitkUInt16))
-        im_np = im_normalize(im_np, [min_ct_1ch, max_ct_1ch], norm_by_interval)
+        # im_np = im_normalize(im_np, [min_ct_1ch, max_ct_1ch], norm_by_interval)
         pos_index = ann_np >= 1
         if multicat:
             if condition_cat == "normal_pneu":
@@ -175,6 +175,9 @@ class extra_processing():
             # to make it compatible with mutlicls label
             anno = anno > 0 
 
+        im = im_normalize(im, self.cfg.preprocess["normalize"]["ct_interval"],
+            self.cfg.preprocess["normalize"]["norm_by_interval"])
+
         if training:
             # elif self.cfg.loss == "sigmoid":
             #     ann_ar = np.repeat(anno[:,1,:,:,:], self.cfg.num_class + 1, -1)
@@ -226,7 +229,7 @@ class extra_processing():
             pass
         else:
             for i in range(im_batch.shape[0]):
-                res = self.preprocess(im_batch[i,:,:], anno_batch[i,:,:], False)
+                res = self.preprocess(im_batch[i,:,:], anno_batch[i,:,:], training)
                 if self.cfg.preprocess["cropping"]:
                     im_stack.append(res[0])
                     anno_stack.append(res[1])

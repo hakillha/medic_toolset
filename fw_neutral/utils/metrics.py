@@ -8,25 +8,25 @@ from os.path import join as pj
 if __name__ != "__main__":
     from .data_proc import Pneu_type
 
-def show_dice(all_res, log=False):
+def show_dice(all_res, thickness_thres, log=False):
     stats = defaultdict(list)
     for res in all_res:
         pneumonia_type = Pneu_type(res[0], False)
         if pneumonia_type == "covid_pneu":
-            if res[2] >= args.thickness_thres:
+            if res[2] >= thickness_thres:
                 stats['covid'].append(res[1])
                 stats['thick'].append(res[1])
                 stats['covid_thick'].append(res[1])
-            elif res[2] < args.thickness_thres:
+            elif res[2] < thickness_thres:
                 stats['covid'].append(res[1])
                 stats['thin'].append(res[1])
                 stats['covid_thin'].append(res[1])
         elif pneumonia_type == "common_pneu":
-            if res[2] >= args.thickness_thres:
+            if res[2] >= thickness_thres:
                 stats['normal'].append(res[1])
                 stats['thick'].append(res[1])
                 stats['normal_thick'].append(res[1])
-            elif res[2] < args.thickness_thres:
+            elif res[2] < thickness_thres:
                 stats['normal'].append(res[1])
                 stats['thin'].append(res[1])
                 stats['normal_thin'].append(res[1])
@@ -317,25 +317,27 @@ if __name__ == "__main__":
     from data_proc import get_infos, Pneu_type
     import SimpleITK as sitk
 
-    args = pasrse_args()
-    econfig = EvalConfig()
-    econfig.load_from_json(args.config)
-    if os.path.exists(args.output_dir):
-        evaluation = pickle.load(open(args.output_dir, "br"))
-        # evaluation.lesion_level_performance()
-        # evaluation.ds_level_performance_np()
-        # evaluation.patient_level_pf()
-    else:
-        evaluation = Evaluation(econfig)
-        res_dirs = get_infos(args.input_dir, True)
-        pbar = tqdm(total=len(res_dirs))
-        for im_file, gt_file, res_file in res_dirs:
-            pred_ar = sitk.GetArrayFromImage(sitk.ReadImage(res_file))
-            evaluation.eval_single_patient(gt_file, pred_ar)
-            pbar.update(1)
-        pbar.close()
-        pickle.dump(evaluation, open(args.output_dir, "bw"))
-        # evaluation.lesion_level_performance()
-        # evaluation.ds_level_performance_np()
-        # evaluation.patient_level_pf()
-        evaluation.healthyperson_lv_fp_rate()
+    # args = pasrse_args()
+    # econfig = EvalConfig()
+    # econfig.load_from_json(args.config)
+    # if os.path.exists(args.output_dir):
+    #     evaluation = pickle.load(open(args.output_dir, "br"))
+    #     # evaluation.lesion_level_performance()
+    #     # evaluation.ds_level_performance_np()
+    #     # evaluation.patient_level_pf()
+    # else:
+    #     evaluation = Evaluation(econfig)
+    #     res_dirs = get_infos(args.input_dir, True)
+    #     pbar = tqdm(total=len(res_dirs))
+    #     for im_file, gt_file, res_file in res_dirs:
+    #         pred_ar = sitk.GetArrayFromImage(sitk.ReadImage(res_file))
+    #         evaluation.eval_single_patient(gt_file, pred_ar)
+    #         pbar.update(1)
+    #     pbar.close()
+    #     pickle.dump(evaluation, open(args.output_dir, "bw"))
+    #     # evaluation.lesion_level_performance()
+    #     # evaluation.ds_level_performance_np()
+    #     # evaluation.patient_level_pf()
+    #     evaluation.healthyperson_lv_fp_rate()
+    res_file = "/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0612_1451_14/model-4823_res.pkl"
+    show_dice(pickle.load(open(res_file, "rb")), 3.0)
