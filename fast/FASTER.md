@@ -62,3 +62,4 @@ import path
 
 `demon.py` for data preparation.
 
+python train.py sess_eval /rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0613_1205_20/UNet_0611.json --batch_size 16 --eval_multi --model_folder /rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0613_1205_20/ --model_list model-173272 --gpus_to_use 0

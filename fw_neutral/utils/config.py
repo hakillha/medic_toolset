@@ -20,9 +20,10 @@ class Config():
         }
 
         self.network = {
-            "name": "SEResUNet", 
-            "reconstruct": False,
-            "weight_decay": False,
+            "name": "SEResUNet", # "SEResUNet" or "UNet"
+            "reconstruct": False, # true or false
+            "weight_decay": False, # small float point number of false
+            "norm_layer": "BN", # "GN" or "BN", this option only works for vanilla unet
         }
         self.optimizer = None
         self.loss = None

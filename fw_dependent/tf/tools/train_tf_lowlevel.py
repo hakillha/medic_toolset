@@ -197,8 +197,13 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
     """
         Args:
             mode: ["during_training", "eval", "eval_mutli"]
-            model: For eval during training. You also need to create one at the
-                very beginning of the eval in "eval_multi" mode.
+            model: The difference between the modes is as follow.
+                For eval during training (the training model will be passed). 
+                You need to create one at the very beginning of the eval 
+                in "eval_multi" mode (outside of this function since it will be
+                ran in a loop). 
+                "Eval" mode will create a model for you. (This mode is not
+                recommended)
             pkl_dir: Provided for an eval during training to overwrite the args.
     """
     eval_object = Evaluation(args.thickness_thres)

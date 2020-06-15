@@ -36,6 +36,7 @@ def parse_args():
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0608/"
         default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0613/"
         )
+    parser.add_argument("--train_debug", action="store_true")
 
     parser.add_argument("--resume", default="")
     parser.add_argument("--resume_epoch", help="Checkpoint epoch plus one.", default=1)
@@ -51,6 +52,9 @@ def parse_args():
     parser.add_argument("--model_file",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0612_1451_14/model-4823"
         )
+    parser.add_argument("--eval_multi", action="store_true")
+    parser.add_argument("--model_folder")
+    parser.add_argument("--model_list", nargs='+')
 
     return parser.parse_args()
 
@@ -80,14 +84,16 @@ def train(args, cfg):
         data=QueueInput(ds),
         steps_per_epoch=len(ds) // num_gpu + 1,
         callbacks=[
-            PeriodicCallback(ModelSaver(50, 1, output_dir), every_k_epochs=1),
+            # PeriodicCallback overwritten the frequency of what's wrapped
+            PeriodicCallback(ModelSaver(50, checkpoint_dir=output_dir), every_k_epochs=1),
             ScheduledHyperParamSetter("learning_rate", schedule),
             GPUUtilizationTracker(),
-            MergeAllSummaries(1),
+            MergeAllSummaries(1 if args.train_debug else 0),
             # ProgressBar(["Loss"])
             ],
         monitors=[
-            ScalarPrinter(True, whitelist=["Loss"]),
+            # ScalarPrinter(True, whitelist=["Loss", "LR"]),
+            ScalarPrinter(True),
             # ScalarPrinter(),
             TFEventWriter(), 
             # JSONWriter()
@@ -117,7 +123,17 @@ if __name__ == "__main__":
         config.gpu_options.allow_growth = True
         config.gpu_options.per_process_gpu_memory_fraction = 0.95
         sess = tf.Session(config=config)
-        # Unify these
-        model = tf_model_v2(cfg, False)
-        args.pkl_dir = args.model_file + "_res.pkl"
-        evaluation("eval_multi", sess, args, cfg, model)
+        # Change this to use towercontext-model.build_graph(placeholders) for consistency
+        # Refer to tp doc inference section for details
+        # model = tf_model_v2(cfg, False)
+        model = Tensorpack_model(cfg)
+        model.build_inf_graph()
+        if args.eval_multi:
+            for mname in args.model_list:
+                args.model_file = pj(args.model_folder, mname)
+                args.pkl_dir = args.model_file + "_res.pkl"
+                evaluation("eval_multi", sess, args, cfg, model)
+                print(f"\nFinished evaluating {mname}.\n")
+        else:
+            args.pkl_dir = args.model_file + "_res.pkl"
+            evaluation("eval_multi", sess, args, cfg, model)
