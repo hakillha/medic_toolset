@@ -10,6 +10,7 @@ class PneuSegDF(DataFlow):
     def __init__(self, args, cfg, test_dir=None):
         super(PneuSegDF, self).__init__()
         self.cfg = cfg
+        self.min_num_workers = args.min_num_workers
         if not test_dir:
             pdirs, ndirs = paths_from_data(args.train_dir, "pos"), paths_from_data(args.train_dir, "neg")
             if cfg.trainset["pn_ratio"]:
@@ -35,12 +36,12 @@ class PneuSegDF(DataFlow):
         return self.ex_process.preprocess(data["im"], data["mask"])
     
     def prepared(self, num_gpu, batch_size, eval=False):
-        ds = MultiProcessMapData(self, max(num_gpu, 8), self.process)
+        ds = MultiProcessMapData(self, max(num_gpu, self.min_num_workers), self.process)
         return BatchData(ds, batch_size)
 
     def eval_process(self, data_dir):
         data = pickle.load(open(data_dir, "rb"))
-        return self.ex_process.preprocess(data["im"], data["mask"], False) + [data_dir]
+        return self.ex_process.preprocess(data["im"], data["mask"], False) + [data_dir, data["im"]]
     
     def eval_prepared(self, num_gpu, batch_size):
-        return MultiProcessMapData(self, max(num_gpu, 8), self.eval_process)
+        return MultiProcessMapData(self, max(num_gpu, self.min_num_workers), self.eval_process)

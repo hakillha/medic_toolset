@@ -4,6 +4,7 @@ import numpy as np
 import SimpleITK as sitk
 from collections import defaultdict
 from os.path import join as pj
+from pprint import pprint
 
 if __name__ != "__main__":
     from .data_proc import Pneu_type
@@ -37,14 +38,21 @@ def show_dice(all_res, thickness_thres, log=False):
             print(f"{key}: {np.mean(np.array(stats[key]))}")
 
 class Patient():
-    def __init__(self, fname, spacings, tags, pneu_type):
+    def __init__(self, fname, pneu_type, thickness, spacings, tags=[]):
         self.fname = fname
+        self.pneu_type = pneu_type
+        self.thickness = thickness
         self.spacings = spacings
         self.lesion_info_2d = [] # list of Lesion() instances
         self.lesion_info_3d = []
         self.pred_info_2d = []
         self.pred_info_3d = []
-        self.pneu_type = pneu_type
+        self.pixel_info = {
+                "intersection": 0, 
+                "pred_area": 0,
+                "gt_area": 0,
+                "dice": 0
+            }
         self.tags = defaultdict(bool)
         for tag in tags:
             self.tags[tag] = True
@@ -87,9 +95,10 @@ def check_tags(patient, tags):
 
 # need something interactive for this to work well
 class Evaluation():
-    def __init__(self, cfg, thickness_thres=3.0):
-        self.cfg = cfg
+    def __init__(self, cfg=None, thickness_thres=3.0):
+        # self.cfg = cfg
         self.dataset_stats = []
+        self.person_map = {}
         self.thickness_threshold = thickness_thres
         # self.size_thres = [26300, 235000]
         self.subsets = defaultdict(list)
@@ -112,6 +121,34 @@ class Evaluation():
             "common_pneu": 2,
             "all": -1
         }
+
+    def add_to_p_map(self, fname):
+        # provide different input interface for this
+        p_id = fname.split('/')[-3]
+        if p_id not in self.person_map.keys():
+            assert len(p_id) == 32
+            thickness = "thick" if "thick" in fname else "thin"
+            p = Patient(fname, Pneu_type(fname, False), thickness, None)
+            self.person_map[p_id] = p
+
+    def pixel_wise_result(self):
+        res_all = defaultdict(lambda:[0, 0])
+        res = self.person_map
+        for k, v in res.items():
+            dice = 2 * res[k].pixel_info["intersection"] / (res[k].pixel_info["gt_area"] + res[k].pixel_info["pred_area"] + 1e-6)
+            # print(dice)
+            res[k].pixel_info["dice"] = dice
+            res_all[res[k].pneu_type][0] += res[k].pixel_info["dice"]
+            res_all[res[k].pneu_type][1] += 1
+            res_all[res[k].thickness][0] += res[k].pixel_info["dice"]
+            res_all[res[k].thickness][1] += 1
+            res_all[res[k].pneu_type + '_' + res[k].thickness][0] += res[k].pixel_info["dice"]
+            res_all[res[k].pneu_type + '_' + res[k].thickness][1] += 1
+            res_all["all"][0] += res[k].pixel_info["dice"]
+            res_all["all"][1] += 1
+        for k, v in res_all.items():
+            v[0] /= v[1]
+        pprint(res_all)
 
     def subset_areas(self, tags):
         areas = []

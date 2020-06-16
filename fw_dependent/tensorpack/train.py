@@ -2,7 +2,6 @@ import argparse, os, shutil, time
 import multiprocessing as mp
 from collections import defaultdict
 from os.path import join as pj
-from pprint import pprint
 
 import numpy as np
 import tensorflow as tf
@@ -25,7 +24,9 @@ from tp_model import Tensorpack_model
 from fw_dependent.tf.model.tf_layers import tf_model_v2
 from fw_dependent.tf.tools.train_tf_lowlevel import evaluation
 from fw_neutral.utils.config import Config
-from fw_neutral.utils.data_proc import Pneu_type
+from fw_neutral.utils.data_proc import Pneu_type, im_normalize
+from fw_neutral.utils.metrics import Evaluation
+from fw_neutral.utils.viz import viz_patient
 
 from tensorpack.dataflow import TestDataSpeed, PrintData
 
@@ -68,8 +69,11 @@ def parse_args():
     parser.add_argument("--model_folder",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0613_1205_20/")
     parser.add_argument("--model_list", nargs='+',
-        default=["model-315040"])
+        default=["model-149644"])
     parser.add_argument("--tp_eval", action="store_true", default=True)
+
+    parser.add_argument("--min_num_workers", type=int, default=2)
+    parser.add_argument("--viz", default=False)
 
     return parser.parse_args()
 
@@ -124,54 +128,53 @@ def tp_evaluation(args, cfg, sess, model):
     ds = df.eval_prepared(num_gpu, args.batch_size)
     tf.train.Saver().restore(sess, args.model_file)
     if os.path.exists(args.pkl_dir):
-        input("Result file already exists. Press enter to \
-            continue and overwrite it when inference is done...")
+        input("Result file already exists. Press enter to continue and overwrite it when inference is done...")
     pbar = tqdm(total=len(ds))
     ds.reset_state()
     # for i in range(0, len(ds), cfg.batch_size):
     #     batch = ds[i:i + cfg.batch_size]
     #     pbar.update(cfg.batch_size)
-    in_ims, in_gts, p_ids = [], [], []
-    res = defaultdict(lambda:dict(intersection=0, gt_area=0, pred_area=0, 
-        thickness=None, pneu_type=None))
+    in_ims, in_gts, p_ids, in_og_ims = [], [], [], []
+    pneu_eval = Evaluation()
     for idx, in_data in enumerate(ds):
         if not df.ex_process.og_shape:
             df.ex_process.og_shape = in_data[1].shape[:-1]
         in_ims.append(in_data[0])
         in_gts.append(in_data[1])
+        if args.viz:
+            in_og_ims.append(in_data[4])
         df.ex_process.tl_list.append(in_data[2])
-        p_id = in_data[3][-3]
-        if res[p_id]["pneu_type"] == None:
-            res[p_id]["pneu_type"] = Pneu_type(in_data[3], False)
-            res[p_id]["thickness"] = "thick" if "thick" in in_data[3] else "thin"
+        pneu_eval.add_to_p_map(in_data[3])
+        p_id = in_data[3].split('/')[-3]
+        assert len(p_id) == 32
         p_ids.append(p_id)
         if len(in_ims) == cfg.batch_size or idx == len(ds) - 1:
-            im_batch = np.array(in_ims)
-            in_gts = np.array(in_gts)
+            assert len(in_ims) == len(in_gts) and len(in_ims) == len(p_ids)
+            im_batch, in_gts = np.array(in_ims), np.array(in_gts)
             pred = sess.run(model.pred["seg_map"], feed_dict={model.in_im: im_batch})
             pred = (1 / (1 + np.exp(-pred))) > .5
             pred = df.ex_process.batch_postprocess(pred)
+            if args.viz:
+                og_im_batch = np.array(in_og_ims)
+                og_im_batch = im_normalize(og_im_batch, cfg.preprocess["normalize"]["ct_interval"],
+                    cfg.preprocess["normalize"]["norm_by_interval"])
+                viz_patient(og_im_batch, pred, in_gts, True)
             intersection = pred * in_gts
             for i in range(pred.shape[0]):
-                res[p_ids[i]]["intersection"] += np.sum(intersection[i,:,:,:])
-                res[p_ids[i]]["gt_area"] += np.sum(in_gts[i,:,:,:])
-                res[p_ids[i]]["pred_area"] += np.sum(pred[i,:,:,:])
+                itsect = np.sum(intersection[i,:,:,:])
+                ga = np.sum(in_gts[i,:,:,:])
+                pa = np.sum(pred[i,:,:,:])
+                # print((itsect, ga, pa))
+                pneu_eval.person_map[p_ids[i]].pixel_info["intersection"] += itsect
+                pneu_eval.person_map[p_ids[i]].pixel_info["gt_area"] += ga
+                pneu_eval.person_map[p_ids[i]].pixel_info["pred_area"] += pa
             pbar.update(cfg.batch_size)
-            in_ims, in_gts = [], []
-        # if idx == 1000: break
+            in_ims, in_gts, p_ids = [], [], []
+        if idx == len(ds) - 1:
+            break
+        # if idx == 2000: break
     pbar.close()
-    res_all = defaultdict(lambda:[0, 0])
-    for k, v in res.items():
-        res[k]["dice"] = 2 * res[k]["intersection"] / (res[k]["gt_area"] + res[k]["pred_area"] + 1e-6)
-        res_all[res[k]["pneu_type"]][0] += res[k]["dice"]
-        res_all[res[k]["pneu_type"]][1] += 1
-        res_all[res[k]["thickness"]][0] += res[k]["dice"]
-        res_all[res[k]["thickness"]][1] += 1
-        res_all[res[k]["pneu_type"] + '_' + res[k]["thickness"]][0] += res[k]["dice"]
-        res_all[res[k]["pneu_type"] + '_' + res[k]["thickness"]][1] += 1
-    for k, v in res_all.items():
-        v[0] /= v[1]
-    pprint(res_all)
+    pneu_eval.pixel_wise_result()
 
 if __name__ == "__main__":
     mp.set_start_method("spawn")
@@ -186,7 +189,6 @@ if __name__ == "__main__":
     elif args.mode == "sess_eval":
         args.thickness_thres = 3.0
         args.eval_debug = False
-        args.viz = False
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.allow_growth = True
         config.gpu_options.per_process_gpu_memory_fraction = 0.95
