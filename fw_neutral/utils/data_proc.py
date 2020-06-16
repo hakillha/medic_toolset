@@ -93,6 +93,7 @@ def extract_slice_single_file(info_path, out_dir, data_dir_suffix, min_ct_1ch, m
     try:
         patient_id = im_file.split('/')[-2]
         im_nii = sitk.ReadImage(im_file, sitk.sitkFloat32)
+        thickness = "thick" if im_nii.GetSpacing()[-1] >= thickness_thres else "thin"
         im_np = sitk.GetArrayFromImage(im_nii)
         ann_np = sitk.GetArrayFromImage(sitk.ReadImage(anno_file, sitk.sitkUInt16))
         # im_np = im_normalize(im_np, [min_ct_1ch, max_ct_1ch], norm_by_interval)
@@ -110,7 +111,8 @@ def extract_slice_single_file(info_path, out_dir, data_dir_suffix, min_ct_1ch, m
         pos_slice_mask = (ann_np > 0).any(axis=(-1, -2))
         pos_im, pos_ann = im_np[pos_slice_mask], ann_np[pos_slice_mask]
         for sli in range(pos_im.shape[0]):
-            save_dir = pj(out_dir, data_dir_suffix, condition_cat, patient_id, 'pos')
+            # save_dir = pj(out_dir, data_dir_suffix, condition_cat, patient_id, 'pos')
+            save_dir = pj(out_dir, '_'.join([condition_cat, thickness]), patient_id, 'pos')
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)
             with open(pj(save_dir, f"{sli}.pkl"), "wb") as f:
@@ -120,14 +122,14 @@ def extract_slice_single_file(info_path, out_dir, data_dir_suffix, min_ct_1ch, m
             neg_slice_mask = ~pos_slice_mask
             neg_im, neg_ann = im_np[neg_slice_mask], ann_np[neg_slice_mask]
             for sli in range(neg_im.shape[0]):
-                save_dir = pj(out_dir, data_dir_suffix, condition_cat, patient_id, 'neg')
+                # save_dir = pj(out_dir, data_dir_suffix, condition_cat, patient_id, 'neg')
+                save_dir = pj(out_dir, '_'.join([condition_cat, thickness]), patient_id, 'neg')
                 if not os.path.exists(save_dir):
                     os.makedirs(save_dir)
                 with open(pj(save_dir, f"{sli}.pkl"), "wb") as f:
                     pickle.dump({"im": neg_im[sli, ...], "mask": neg_ann[sli, ...]}, f)
         
         stats[condition_cat] = 1
-        thickness = "thick" if im_nii.GetSpacing()[-1] >= thickness_thres else "thin"
         stats[thickness] = 1
         stats[condition_cat + '_' + thickness] = 1
         stats[condition_cat + '_pos_slices'] = pos_im.shape[0]
@@ -145,7 +147,9 @@ def extract_slice_sequential(info_paths, out_dir, data_dir_suffix, min_ct_1ch, m
 def paths_from_data(data_dir, sample_set):
     sample_paths = []
     for root, dirs, files in os.walk(data_dir):
-        if sample_set in root:
+        if sample_set == "all":
+            sample_paths += glob.glob(pj(root, "*.pkl"))
+        elif sample_set in root:
             sample_paths += glob.glob(pj(root, "*.pkl"))
     return sample_paths
 
@@ -247,6 +251,7 @@ class extra_processing():
                 [C, H, W]
         """
         pred_stack = []
+        assert len(self.tl_list) == pred_batch.shape[0], f"tl list length: {len(self.tl_list)}"
         for i in range(pred_batch.shape[0]):
             if self.cfg.preprocess["cropping"]:
                 padded_res = np.zeros(shape=self.og_shape)
@@ -255,4 +260,5 @@ class extra_processing():
                 pred_stack.append(padded_res)
             elif self.cfg.preprocess["resize"]:
                 pred_stack.append(cv2.resize(pred_batch[i,:,:,0].astype(np.float32), self.og_shape, interpolation=cv2.INTER_NEAREST))
+        self.tl_list = [] # clear up this list
         return np.expand_dims(np.array(pred_stack), -1)

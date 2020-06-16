@@ -206,7 +206,6 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
                 recommended)
             pkl_dir: Provided for an eval during training to overwrite the args.
     """
-    eval_object = Evaluation(args.thickness_thres)
     info_paths = []
     for folder in args.testset_dir:
         info_paths += get_infos(folder)
@@ -280,7 +279,6 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
             shutil.copy(img_file, debug_out)
             shutil.copy(lab_file, debug_out)
         else:
-            # eval_object.eval_single_patient(lab_file, dis_prd)
             score = dice_coef_pat(dis_prd, lab_arr)
             if score < 0.3:
                 if args.viz:

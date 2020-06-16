@@ -3,7 +3,7 @@ import tensorflow as tf
 import sys
 sys.path.insert(0, "../../..")
 from fw_dependent.tf.model.ASEUNet import SEResUNet
-from fw_dependent.tf.model.UNet import UNet
+from fw_dependent.tf.model.UNet import UNet, UNet_v1
 
 def hbloss_dice_focal_v0(pred, input_ann):
     prob = tf.math.sigmoid(pred)
@@ -174,7 +174,8 @@ class tf_model():
 def choose_model(cfg):
     MODEL_MAP = {
         "SEResUNet": SEResUNet,
-        "UNet": UNet
+        "UNet": UNet,
+        "UNet_v1": UNet_v1
     }
     return MODEL_MAP[cfg.network["name"]]
 
