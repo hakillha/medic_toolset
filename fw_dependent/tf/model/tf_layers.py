@@ -3,7 +3,17 @@ import tensorflow as tf
 import sys
 sys.path.insert(0, "../../..")
 from fw_dependent.tf.model.ASEUNet import SEResUNet
-from fw_dependent.tf.model.UNet import UNet, UNet_v1
+from fw_dependent.tf.model.UNet import UNet, UNet_v1, UNet_v1_9, UNet_v2
+
+def choose_model(cfg):
+    MODEL_MAP = {
+        "SEResUNet": SEResUNet,
+        "UNet": UNet,
+        "UNet_v1": UNet_v1,
+        "UNet_v1.9": UNet_v1_9,
+        "UNet_v2": UNet_v2
+    }
+    return MODEL_MAP[cfg.network["name"]]
 
 def hbloss_dice_focal_v0(pred, input_ann):
     prob = tf.math.sigmoid(pred)
@@ -170,14 +180,6 @@ class tf_model():
             if training: 
                 self.loss = build_loss(self.pred, self.in_im, self.in_gt, cfg) 
                 self.opt_op = optimizer.minimize(self.loss, global_step=global_step)
-
-def choose_model(cfg):
-    MODEL_MAP = {
-        "SEResUNet": SEResUNet,
-        "UNet": UNet,
-        "UNet_v1": UNet_v1
-    }
-    return MODEL_MAP[cfg.network["name"]]
 
 class tf_model_v2():
     def __init__(self, cfg, training=True):

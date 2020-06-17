@@ -131,12 +131,11 @@ class Evaluation():
             p = Patient(fname, Pneu_type(fname, False), thickness, None)
             self.person_map[p_id] = p
 
-    def pixel_wise_result(self):
+    def pixel_wise_result(self, pkl_dir):
         res_all = defaultdict(lambda:[0, 0])
         res = self.person_map
         for k, v in res.items():
             dice = 2 * res[k].pixel_info["intersection"] / (res[k].pixel_info["gt_area"] + res[k].pixel_info["pred_area"] + 1e-6)
-            # print(dice)
             res[k].pixel_info["dice"] = dice
             res_all[res[k].pneu_type][0] += res[k].pixel_info["dice"]
             res_all[res[k].pneu_type][1] += 1
@@ -146,6 +145,7 @@ class Evaluation():
             res_all[res[k].pneu_type + '_' + res[k].thickness][1] += 1
             res_all["all"][0] += res[k].pixel_info["dice"]
             res_all["all"][1] += 1
+        pickle.dump(res, open(pkl_dir, "wb"))
         for k, v in res_all.items():
             v[0] /= v[1]
         pprint(res_all)

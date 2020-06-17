@@ -21,7 +21,7 @@
         "name": "UNet",
         "reconstruct": false,
         "weight_decay": false,
-        "norm_layer": "GN"
+        "norm_layer": "GN_layers"
     },
     "loss": "dice_loss",
     "optimizer": {

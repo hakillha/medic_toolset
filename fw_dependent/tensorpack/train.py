@@ -21,6 +21,7 @@ import sys
 sys.path.insert(0, "../..")
 from data import PneuSegDF
 from tp_model import Tensorpack_model
+from fw_dependent.tf.model.misc import BN_layers_update
 from fw_dependent.tf.model.tf_layers import tf_model_v2
 from fw_dependent.tf.tools.train_tf_lowlevel import evaluation
 from fw_neutral.utils.config import Config
@@ -37,7 +38,7 @@ def parse_args():
             "--train_dir"
             and "--batch_size" optionally
         
-        "tp_eval" mode require:
+        "tp_eval" mode requires:
     """)
     parser.add_argument("mode", choices=["train", "sess_eval", "test"])
     parser.add_argument("config", help="Config file.")
@@ -62,18 +63,18 @@ def parse_args():
         )
     parser.add_argument("--batch_size", type=int,
         help="Provided here to enable easy overwritting (particularly useful for evaluation).")
-    parser.add_argument("--model_file",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0612_1451_14/model-4823"
-        )
-    parser.add_argument("--eval_multi", action="store_true", default=True)
     parser.add_argument("--model_folder",
         default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0613_1205_20/")
     parser.add_argument("--model_list", nargs='+',
         default=["model-149644"])
     parser.add_argument("--tp_eval", action="store_true", default=True)
+    parser.add_argument("--eval_multi", action="store_true", default=True)
 
     parser.add_argument("--min_num_workers", type=int, default=2)
     parser.add_argument("--viz", default=False)
+    parser.add_argument("--model_file",
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0612_1451_14/model-4823"
+        )
 
     return parser.parse_args()
 
@@ -82,7 +83,7 @@ def train(args, cfg):
     num_gpu = max(get_num_gpu(), 1)
     print(f"\nNumber of training samples: {len(df)}\n")
     ds = df.prepared(num_gpu, cfg.batch_size)
-    schedule = [(ep + 1, lr / num_gpu) for ep, lr in zip([0] + cfg.optimizer["epoch_to_drop_lr"], cfg.optimizer["lr"])]
+    schedule = [(ep, lr / num_gpu) for ep, lr in zip([0] + cfg.optimizer["epoch_to_drop_lr"], cfg.optimizer["lr"])]
     if os.path.exists(os.path.dirname(args.resume)):
         assert args.resume_epoch != 1
         output_dir = os.path.dirname(args.resume)
@@ -96,18 +97,21 @@ def train(args, cfg):
     else:
         shutil.copy(args.config, output_dir)
     logger.set_logger_dir(pj(output_dir, "log"))
-    train_cfg = TrainConfig(
-        model=Tensorpack_model(cfg),
-        data=QueueInput(ds),
-        steps_per_epoch=len(ds) // num_gpu + 1,
-        callbacks=[
+    callback_list = [
             # PeriodicCallback overwritten the frequency of what's wrapped
             PeriodicCallback(ModelSaver(50, checkpoint_dir=output_dir), every_k_epochs=1),
             ScheduledHyperParamSetter("learning_rate", schedule),
             GPUUtilizationTracker(),
             MergeAllSummaries(1 if args.train_debug else 0),
             # ProgressBar(["Loss"])
-            ],
+            ]
+    if cfg.network["norm_layer"] == "BN_layers":
+        callback_list.append(BN_layers_update())
+    train_cfg = TrainConfig(
+        model=Tensorpack_model(cfg),
+        data=QueueInput(ds),
+        steps_per_epoch=len(ds) // num_gpu + 1,
+        callbacks=callback_list,
         monitors=[
             # ScalarPrinter(True, whitelist=["Loss", "LR"]),
             ScalarPrinter(True),
@@ -151,7 +155,7 @@ def tp_evaluation(args, cfg, sess, model):
         if len(in_ims) == cfg.batch_size or idx == len(ds) - 1:
             assert len(in_ims) == len(in_gts) and len(in_ims) == len(p_ids)
             im_batch, in_gts = np.array(in_ims), np.array(in_gts)
-            pred = sess.run(model.pred["seg_map"], feed_dict={model.in_im: im_batch})
+            pred = sess.run(model.ops["seg_map"], feed_dict={model.in_im: im_batch})
             pred = (1 / (1 + np.exp(-pred))) > .5
             pred = df.ex_process.batch_postprocess(pred)
             if args.viz:
@@ -164,7 +168,6 @@ def tp_evaluation(args, cfg, sess, model):
                 itsect = np.sum(intersection[i,:,:,:])
                 ga = np.sum(in_gts[i,:,:,:])
                 pa = np.sum(pred[i,:,:,:])
-                # print((itsect, ga, pa))
                 pneu_eval.person_map[p_ids[i]].pixel_info["intersection"] += itsect
                 pneu_eval.person_map[p_ids[i]].pixel_info["gt_area"] += ga
                 pneu_eval.person_map[p_ids[i]].pixel_info["pred_area"] += pa
@@ -174,7 +177,7 @@ def tp_evaluation(args, cfg, sess, model):
             break
         # if idx == 2000: break
     pbar.close()
-    pneu_eval.pixel_wise_result()
+    pneu_eval.pixel_wise_result(args.pkl_dir)
 
 if __name__ == "__main__":
     mp.set_start_method("spawn")
@@ -197,7 +200,7 @@ if __name__ == "__main__":
         # Refer to tp doc inference section for details
         # model = tf_model_v2(cfg, False)
         model = Tensorpack_model(cfg)
-        model.build_inf_graph()
+        model.build_inf_graph(False)
         if args.eval_multi:
             for mname in args.model_list:
                 args.model_file = pj(args.model_folder, mname)
