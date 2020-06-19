@@ -60,19 +60,17 @@ if __name__ == "__main__":
     sess = tf.Session(config=config)
     test_model = Tensorpack_model(cfg, True)
     # Test both training and inference graphs
-    test_model.build_inf_graph(False)
+    test_model.build_inf_graph(True)
     optimizer = test_model.optimizer()
-    if cfg.network["norm_layer"] == "BN_layers":
+    if cfg.network["norm_layer"] == "BN_layers" or cfg.network["norm_layer"] == "GN_layers":
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        print("\ntf.layers.BN update operations:")
+        pprint(update_ops)
         with tf.control_dependencies(update_ops):
             opt_op = optimizer.minimize(test_model.loss)
     else:
         opt_op = optimizer.minimize(test_model.loss)
     # opt_op = optimizer.minimize(test_model.loss)
-
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    print("\ntf.layers.BN update operations:")
-    pprint(update_ops)
-
     sess.run(tf.global_variables_initializer())
     steps = 10000
     pbar = tqdm(total=steps)

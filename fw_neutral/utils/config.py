@@ -9,8 +9,20 @@ class Config():
         self.max_epoch = 40 # maximum number of epochs you can run
         self.num_class = 1
         self.trainset = {
-            # ratio being 0 means not using any healthy samples
+            # Ratio being 0 means not using any healthy samples
+            # Set this to 0 < ratio < 1 when #neg samples is larger
             "pn_ratio": 0, 
+            "data_list": "",
+            "patient_filter_file": "",
+            "md5_map": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/MD5_map.csv",
+            "slice_filter_file": "",
+            "quality": []
+        }
+        self.valset = {
+            "pos_or_neg": "all", 
+            "patient_filter_file": "",
+            "md5_map": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/MD5_map.csv",
+            "quality": []
         }
 
         self.preprocess = {
@@ -40,8 +52,12 @@ class Config():
         self.max_epoch = cf_dict["max_epoch"]
         self.num_class = cf_dict["num_class"]
         
-        if "trainset" in cf_dict.keys():
-            self.trainset = cf_dict["trainset"]
+        # if "trainset" in cf_dict.keys():
+        for key in cf_dict["trainset"].keys():
+            self.trainset[key] = cf_dict["trainset"][key]
+        if "valset" in cf_dict.keys():
+            for key in cf_dict["valset"].keys():
+                self.valset[key] = cf_dict["valset"][key]
 
         # this should be a list in the json file 
         # indicating the order of preprocessing?

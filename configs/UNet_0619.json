@@ -1,0 +1,39 @@
+{
+    "batch_size": 8,
+    "im_size": [384, 384],
+    "max_epoch": 30,
+    "num_class": 1,
+    "trainset":{
+        "data_list": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/metadata/0618/model-118140_res_bad_slice.json",
+        "pn_ratio": 1
+    },
+    "valset":{
+        "patient_filter_file": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/metadata/0618/trainq.csv",
+        "md5_map": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/metadata/0618/MD5_map.csv",
+        "pos_or_neg": "all",
+        "quality": ["0", "1"]
+    },
+    "preprocess": {
+        "normalize": {
+            "ct_interval": [-1024, 2048],
+            "norm_by_interval": true
+        },
+        "flip": true,
+        "cropping": true,
+        "cropping_ct_thres": 0.1,
+        "cropping_train_randomness": 20,
+        "resize": false
+    },
+    "network":{
+        "name": "UNet",
+        "reconstruct": false,
+        "weight_decay": false,
+        "norm_layer": "BN_layers"
+    },
+    "loss": "dice_loss",
+    "optimizer": {
+        "name": "Adam",
+        "epoch_to_drop_lr": [8, 14],
+        "lr": [1e-3, 5e-4, 25e-5]
+    }
+}

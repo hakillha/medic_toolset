@@ -18,9 +18,9 @@ from fast.cf_mod.misc.my_metrics import dice_coef_pat
 # TODO: unify the process of building models
 from fw_dependent.tf.model.tf_layers import tf_model
 from fw_neutral.utils.config import Config
-from fw_neutral.utils.data_proc import extra_processing, paths_from_data, Pneu_type, get_infos
+from fw_neutral.utils.data_proc import extra_processing, paths_from_data, get_infos
 from fw_neutral.utils.viz import viz_patient
-from fw_neutral.utils.metrics import Evaluation, show_dice
+from fw_neutral.utils.metrics import Evaluation, Pneu_type, show_dice
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -108,8 +108,8 @@ def parse_args():
 def ini_training_set(args, cfg):
     print("==>>Training set: ")
     print("++"*30)
-    train_dataset = BaseDataset(paths_from_data(args.train_dir, "pos"), 
-        paths_from_data(args.train_dir, "neg"),
+    train_dataset = BaseDataset(paths_from_data(args.train_dir, None, "pos"), 
+        paths_from_data(args.train_dir, None, "neg"),
         img_size=cfg.im_size, choice="all", image_key="im", mask_key="mask")
     print(f"Number of training samples: {len(train_dataset)}")
     return train_dataset
@@ -167,7 +167,7 @@ def train(sess, args, cfg):
             for j in range(i * cfg.batch_size, (i + 1) * cfg.batch_size):
                 # Careful with a batch size that can't be divided evenly by the number of gpus
                 # when at the end during a multi-GPU training
-                ex_process = extra_processing(cfg)
+                ex_process = extra_processing(cfg.im_size, cfg.num_class, cfg.preprocess, cfg.loss)
                 im_ar, ann_ar = ex_process.preprocess(train_dataset[j][0], train_dataset[j][1], True)
                 data_list.append((im_ar, ann_ar))
             data_ar = np.array(data_list)
@@ -238,7 +238,7 @@ def evaluation(mode, sess, args, cfg, model=None, pkl_dir=None, log=False):
         depth, ori_shape = img_arr.shape[0], img_arr.shape[1:]
         pneumonia_type = Pneu_type(img_file, False)
         spacing = img_ori.GetSpacing()
-        ex_processing = extra_processing(cfg, og_shape=ori_shape[::-1])
+        ex_processing = extra_processing(cfg.im_size, cfg.num_class, cfg.preprocess, cfg.loss, og_shape=ori_shape[::-1])
         dis_arr, lab_arr = ex_processing.batch_preprocess(img_arr, lab_arr, False)
 
         pred_ = []

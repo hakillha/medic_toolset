@@ -7,11 +7,11 @@ from tensorpack.callbacks import Callback
 def get_norm(norm_name, name, training):
     """
         args:
-            training: This is auto taken care of in tp
+            training: This is auto taken care of by tp
     """
     if norm_name == "BN_layers":
         return partial(tf.layers.batch_normalization, training=training, name=name)
-    elif norm_name == "BN_layers":
+    elif norm_name == "GN_layers":
         return partial(GroupNomr_layers, training=training, name=name)
     elif norm_name == "BN":
         return partial(BatchNorm, name=name)

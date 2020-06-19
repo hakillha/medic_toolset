@@ -6,8 +6,26 @@ from collections import defaultdict
 from os.path import join as pj
 from pprint import pprint
 
-if __name__ != "__main__":
-    from .data_proc import Pneu_type
+def Pneu_type(file_dir, include_healthy, discard_neg=False):
+    matched_tag = 0
+    for tag in ["covid_pneu", "healthy"]:
+        if tag in file_dir:
+            matched_tag += 1
+    if "normal_pneu" in file_dir or "normal" in file_dir or "hard" in file_dir:
+        matched_tag += 1
+    assert matched_tag == 1, f"Inconsistent directory: {file_dir}"
+
+    if "covid_pneu" in file_dir:
+        return "covid_pneu"
+    elif "normal_pneu" in file_dir or "normal" in file_dir or "hard" in file_dir:
+        return "common_pneu"
+    elif "healthy" in file_dir:
+        if not include_healthy:
+            return None
+        return "healthy"
+    else:
+        print("Unknown condition!")
+        return None
 
 def show_dice(all_res, thickness_thres, log=False):
     stats = defaultdict(list)
@@ -41,6 +59,7 @@ class Patient():
     def __init__(self, fname, pneu_type, thickness, spacings, tags=[]):
         self.fname = fname
         self.pneu_type = pneu_type
+        self.clsf_correct = True
         self.thickness = thickness
         self.spacings = spacings
         self.lesion_info_2d = [] # list of Lesion() instances
@@ -56,6 +75,17 @@ class Patient():
         self.tags = defaultdict(bool)
         for tag in tags:
             self.tags[tag] = True
+    
+    @staticmethod
+    def find_id(file_dir):
+        for identifier in file_dir.split('/'):
+            if len(identifier) == 32:
+                is_id = True
+                for char in identifier:
+                    if not (char.isdigit() or char.isalpha()):
+                        is_id = False
+                if is_id:
+                    return identifier
 
 class SegInstance2D():
     def __init__(self, area, area_interval, slice_ind, iou=None):
@@ -96,9 +126,13 @@ def check_tags(patient, tags):
 # need something interactive for this to work well
 class Evaluation():
     def __init__(self, cfg=None, thickness_thres=3.0):
+        """
+            Be specific about the cfg. Don't just use one single generic cfg object to lessen
+            the coupling.
+        """
         # self.cfg = cfg
         self.dataset_stats = []
-        self.person_map = {}
+        self.person_map = {} # maps patient id to the patient instance
         self.thickness_threshold = thickness_thres
         # self.size_thres = [26300, 235000]
         self.subsets = defaultdict(list)
@@ -128,26 +162,46 @@ class Evaluation():
         if p_id not in self.person_map.keys():
             assert len(p_id) == 32
             thickness = "thick" if "thick" in fname else "thin"
-            p = Patient(fname, Pneu_type(fname, False), thickness, None)
+            p = Patient(fname, Pneu_type(fname, True), thickness, None)
             self.person_map[p_id] = p
 
-    def pixel_wise_result(self, pkl_dir):
-        res_all = defaultdict(lambda:[0, 0])
-        res = self.person_map
+    def pixel_wise_result(self, pkl_dir, overwrite=False):
+        EPS = 1e-8
+        # #of_persons, dice_sum, #of_correct_res
+        res_all = defaultdict(lambda:[0, 0, 0])
+        if not overwrite:
+            res = pickle.load(open(pkl_dir, "rb"))
+        else:
+            res = self.person_map
+        if overwrite: # No res yet, need to calculate it
+            for k, v in res.items():
+                dice = (2 * res[k].pixel_info["intersection"] + EPS) / (res[k].pixel_info["gt_area"] + res[k].pixel_info["pred_area"] + EPS)
+                res[k].pixel_info["dice"] = dice
+                if res[k].pneu_type == "healthy":
+                    if res[k].pixel_info["pred_area"] > 0:
+                        res[k].clsf_correct = False
+                else:
+                    if res[k].pixel_info["pred_area"] == 0:
+                        res[k].clsf_correct = False
         for k, v in res.items():
-            dice = 2 * res[k].pixel_info["intersection"] / (res[k].pixel_info["gt_area"] + res[k].pixel_info["pred_area"] + 1e-6)
-            res[k].pixel_info["dice"] = dice
-            res_all[res[k].pneu_type][0] += res[k].pixel_info["dice"]
-            res_all[res[k].pneu_type][1] += 1
-            res_all[res[k].thickness][0] += res[k].pixel_info["dice"]
-            res_all[res[k].thickness][1] += 1
-            res_all[res[k].pneu_type + '_' + res[k].thickness][0] += res[k].pixel_info["dice"]
-            res_all[res[k].pneu_type + '_' + res[k].thickness][1] += 1
-            res_all["all"][0] += res[k].pixel_info["dice"]
-            res_all["all"][1] += 1
-        pickle.dump(res, open(pkl_dir, "wb"))
+            map2bigcat = {
+                "covid_pneu": "sick_people",
+                "common_pneu": "sick_people",
+                "healthy": "healthy_people",
+            }
+            cat_list = [res[k].pneu_type, res[k].thickness, res[k].pneu_type + '_' + res[k].thickness, 
+                map2bigcat[res[k].pneu_type], "all"]
+            for ptype in cat_list:
+                res_all[ptype][0] += 1
+                res_all[ptype][1] += res[k].pixel_info["dice"]
+                res_all[ptype][2] += 1 if res[k].clsf_correct else 0
+        if overwrite:
+            if os.path.exists(pkl_dir):
+                input("Press Enter to overwrite existing results...")
+            pickle.dump(res, open(pkl_dir, "wb"))
         for k, v in res_all.items():
-            v[0] /= v[1]
+            v[1] /= v[0]
+            v[2] /= v[0]
         pprint(res_all)
 
     def subset_areas(self, tags):

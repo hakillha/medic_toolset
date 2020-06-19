@@ -37,9 +37,11 @@ You can think of this as running the first SSH and tell it to run another SSH on
 
 ## Linux Cheatsheet
 * Count number of files recursively: `find $DIR -type f | wc -l`
-* Search: `find /rdfs/fast/home/sunyingge/anaconda3/envs/tf14/lib/python3.6/site-packages/tensorflow/ -name tf_upgrade_v2*`
+* Search: `find /rdfs/fast/home/sunyingge/anaconda3/envs/tf14/lib/python3.6/site-packages/tensorflow/ -name tf_upgrade_v2*` (additionally you can specify `-type d` and `-print`)  
+ Name example: `"*$STR*"`
 * `tar -czvf name_of_archive.tar.gz $DIR && rm -rf $DIR`: compress and remove a large number of files.
 * `ls -l --block-size=M/G $DIR`: File size.
+* `du -h --max-depth=0 $DIR`: Folder size.
 # Ideas
 * Regularization: weight decay/l2 norm loss  
 tensorflow.org/guide/migrate

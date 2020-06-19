@@ -4,7 +4,9 @@
     "max_epoch": 40,
     "num_class": 1,
     "trainset":{
-        "pn_ratio": 0
+        "patient_filter_file": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/trainq.csv",
+        "slice_filter_file": "",
+        "pn_ratio": "all"
     },
     "preprocess": {
         "normalize": {
