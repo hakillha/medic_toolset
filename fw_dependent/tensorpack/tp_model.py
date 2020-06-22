@@ -9,12 +9,13 @@ sys.path.insert(0, "../..")
 from fw_dependent.tf.model.tf_layers import choose_model, build_loss
 
 class Tensorpack_model(ModelDesc):
-    def __init__(self, cfg, training=True):
+    def __init__(self, cfg, training=True, steps_per_epoch=10000):
         super(Tensorpack_model, self).__init__()
         self.cfg = cfg
         # self.training_network = training
         self.in_im_tname = "input_im"
         self.in_gt_tname = "input_gt"
+        self.steps_per_epoch = steps_per_epoch
 
     def inputs(self):
         return [tf.TensorSpec([None, self.cfg.im_size[0], self.cfg.im_size[1], 1], name=self.in_im_tname),
@@ -30,8 +31,12 @@ class Tensorpack_model(ModelDesc):
         return self.loss
     
     def optimizer(self):
-        learning_rate = tf.get_variable("learning_rate", 
-            initializer=self.cfg.optimizer["lr"][0], trainable=False)
+        if self.cfg.lr_schedule["type"] == "epoch_wise_constant":
+            learning_rate = tf.get_variable("learning_rate", 
+                initializer=self.cfg.optimizer["lr"][0], trainable=False)
+        elif self.cfg.lr_schedule["type"] == "cos_decay":
+            learning_rate = tf.train.cosine_decay(self.cfg.lr_schedule["lr"], 
+                get_global_step_var(), self.cfg.lr_schedule["epoch_period"] * self.steps_per_epoch)
         tf.summary.scalar("LR", learning_rate)
         return tf.train.AdamOptimizer(learning_rate)
     
@@ -48,7 +53,7 @@ if __name__ == "__main__":
     import numpy as np
     from tqdm import tqdm
     from fw_neutral.utils.config import Config
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     cfg = Config()
     # cfg_file = "/rdfs/fast/home/sunyingge/pt_ground/configs/UNet_0611.json"
     # cfg_file = "/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0615_1926_49/UNet_0615.json"

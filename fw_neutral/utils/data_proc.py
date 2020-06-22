@@ -14,7 +14,7 @@ from fw_neutral.utils.metrics import Patient, Pneu_type
 
 EPS = 1.0e-8
 
-def Patient_quality_filter(data_dirs, fmap_file, quality_file, quality_list):
+def ID_quality_map(quality_file, quality_list):
     quality_filter = defaultdict(bool)
     num_quality_p = 0
     with open(quality_file, newline='') as csvfile:
@@ -24,27 +24,88 @@ def Patient_quality_filter(data_dirs, fmap_file, quality_file, quality_list):
                 if row[1] == quality:
                     quality_filter[row[0]] = True
                     num_quality_p += 1
+    return quality_filter, num_quality_p
+
+def MD5_datadir_map(fmap_file):
     md5_map = {}
     with open(fmap_file, newline='') as csvfile:
         csvreader = csv.reader(csvfile)
         for row in csvreader:
             md5_map[Patient.find_id(row[1])] = row[0]
-    res = []
-    matched_patient_set = set()
-    patientsfoundinmap = set()
-    for data_dir in data_dirs:
-        p_id = Patient.find_id(data_dir)
-        if p_id in md5_map.keys():
-            patientsfoundinmap.add(p_id)
-            if quality_filter[md5_map[p_id]]:
-                matched_patient_set.add(p_id)
-                res.append(data_dir)
+    return md5_map
+
+def Combine_pndirs(pn_ratio, pdirs, ndirs):
+    if pn_ratio:
+        if pn_ratio != "all":
+            if pn_ratio > 1:
+                ndirs = np.random.permutation(ndirs).tolist()[:len(pdirs) // pn_ratio]
+            else:
+                pdirs = np.random.permutation(pdirs).tolist()[:int(len(ndirs) * pn_ratio)]
+        print(f"\nNum of pos samples: {len(pdirs)}")
+        print(f"Num of neg samples: {len(ndirs)}\n")
+        return pdirs + ndirs
+    else:
+        return pdirs
+
+def Patient_quality_filter(in_data_dirs, in_p_ids, fmap_file, quality_file, quality_list):
+    md5_q_map, num_quality_p = ID_quality_map(quality_file, quality_list)
+    md5_map = MD5_datadir_map(fmap_file)
+
+    if not in_data_dirs is None:
+        res, p_id_set = [], set()
+        matched_patient_set = set()
+        # patientsfoundinmap = set()
+        for data_dir in in_data_dirs:
+            p_id = Patient.find_id(data_dir)
+            p_id_set.add(p_id)
+            if p_id in md5_map.keys():
+                # patientsfoundinmap.add(p_id)
+                if md5_q_map[md5_map[p_id]]:
+                    matched_patient_set.add(p_id)
+                    res.append(data_dir)
+        num_matches = len(matched_patient_set)
+    elif not in_p_ids is None:
+        filtered_id_list = []
+        for p_id in in_p_ids:
+            if p_id in md5_map.keys() and md5_q_map[md5_map[p_id]]:
+                filtered_id_list.append(p_id)
+        num_matches = len(filtered_id_list)
+        res = filtered_id_list
     
     # print #all patients
     print(f"Number of quality patients: {num_quality_p}")
-    print(f"Number of matched patients: {len(matched_patient_set)}")
-    print(len(patientsfoundinmap))
+    print(f"Number of matched patients: {num_matches}")
+    # print(len(patientsfoundinmap))
+    # return res, list(p_id_set)
     return res
+
+def find_positivity(data_dir):
+    if "pos" in data_dir:
+        return "pos"
+    elif "neg" in data_dir:
+        return "neg"
+
+def gen_data_list(data_dir, cfg):
+    data_dirs = paths_from_data(data_dir, None, "all")
+    p_slice_map = defaultdict(lambda : {"pos": [], "neg": []})
+    for data_dir in data_dirs:
+        p_slice_map[Patient.find_id(data_dir)][find_positivity(data_dir)].append(data_dir)
+    print(f"Num of patients: {len(p_slice_map.keys())}")
+    filtered_ids = Patient_quality_filter(None, p_slice_map.keys(), 
+        cfg.trainset["md5_map"], cfg.trainset["patient_filter_file"], cfg.trainset["quality"])
+    random.shuffle(filtered_ids)
+    val_ids = filtered_ids[-int(len(filtered_ids) * cfg.trainset["val_ratio"]):]
+    train_ids = filtered_ids[:len(filtered_ids) - len(val_ids)]
+    train_pdirs, train_ndirs, val_dirs = [], [], []
+    for idx in train_ids:
+        train_pdirs += p_slice_map[idx]["pos"]
+        train_ndirs += p_slice_map[idx]["neg"]
+    train_dirs = Combine_pndirs(cfg.trainset["pn_ratio"], train_pdirs, train_ndirs)
+    for idx in val_ids:
+        val_dirs += (p_slice_map[idx]["pos"] + p_slice_map[idx]["neg"])
+    print(f"Num of training samples: {len(train_dirs)}")
+    print(f"Num of validation samples: {len(val_dirs)}")
+    return train_dirs, val_dirs
 
 # def get_infos(root_dir, link="-", isprint=True):
 #     get_paths = []

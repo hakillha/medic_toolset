@@ -1,10 +1,13 @@
-import argparse, json, os, shutil
+import argparse, json, os, random, shutil
+from collections import defaultdict
 from os.path import join as pj
 
 import sys
 sys.path.insert(0, "../..")
+from fw_neutral.utils.config import Config
+# from fw_neutral.utils.data_proc import get_infos, ID_quality_map, MD5_datadir_map, Patient_quality_filter, paths_from_data
+from fw_neutral.utils.data_proc import Combine_pndirs, get_infos, gen_data_list, Patient_quality_filter, paths_from_data
 from fw_neutral.utils.metrics import Evaluation, Patient
-from fw_neutral.utils.data_proc import get_infos, Patient_quality_filter
 
 def check_walk():
     patient_set = set()
@@ -28,8 +31,13 @@ def check_walk():
     print(len(patient_set))
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=["parse_res_pkl", "check_walk", "assign_id", "other"])
+    parser = argparse.ArgumentParser("""
+        args:
+            "gen_datalist" mode requires:
+                "--config"
+    """)
+    parser.add_argument("mode", choices=["parse_res_pkl", "check_walk", "assign_id", "gen_datalist", "other"])
+    parser.add_argument("--config")
     parser.add_argument("--in_dir")
     parser.add_argument("--out_dir")
     return parser.parse_args()
@@ -51,7 +59,11 @@ if __name__ == "__main__":
             for f in data_dir:
                 shutil.copy(f, target_dir)
             p_id += 1
-    else:
+    elif args.mode == "gen_datalist":
+        cfg = Config()
+        cfg.load_from_json(args.config)
+        gen_data_list(args.in_dir, cfg)
+    elif args.mode == "other":
         bad_dir_list = json.load(open("/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0617_1203_00/model-118140_res_bad_slice.json", "r"))
         pos, neg = 0, 0
         for bad_dir in bad_dir_list:

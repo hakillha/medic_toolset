@@ -1,4 +1,20 @@
 import json
+from collections import namedtuple
+
+class SafeDict(dict):
+    def __init__(self, *args, **kwargs):
+        self.update(*args, **kwargs)
+
+    def __setitem__(self, key, value):
+        # For some reason this doesn't work in multiprocessing
+        # if key not in self:
+        #     print(self)
+        #     raise KeyError(f"'{key}' is not a legal key.")
+        dict.__setitem__(self, key, value)
+    
+    def update(self, *args, **kwargs):
+        for k, v in dict(*args, **kwargs).items():
+            self[k] = v
 
 # When we extend this to other frameworks we will need subclass this
 class Config():
@@ -8,36 +24,50 @@ class Config():
         self.im_size = (256, 256) # w, h
         self.max_epoch = 40 # maximum number of epochs you can run
         self.num_class = 1
-        self.trainset = {
-            # Ratio being 0 means not using any healthy samples
-            # Set this to 0 < ratio < 1 when #neg samples is larger
+        self.trainset = SafeDict({
+            "val_ratio": .2,
+            # Ratio being 0 means not using any healthy samples. Set this to 0 < ratio < 1 when #neg samples is larger(???).
+            # Or set to "all" if you want all the negative samples. Set this to smaller than 1 to have an opposite
+            # behavior.
             "pn_ratio": 0, 
-            "data_list": "",
+            # When provided, directly loads dirs from this file over other settings
+            "data_list": "", 
             "patient_filter_file": "",
             "md5_map": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/MD5_map.csv",
-            "slice_filter_file": "",
+            # "slice_filter_file": "",
             "quality": []
-        }
-        self.valset = {
+        })
+        self.valset = SafeDict({
+            "datalist_dir": None
+        })
+        self.trainset_eval = SafeDict({
+            "root_dir": None,
             "pos_or_neg": "all", 
             "patient_filter_file": "",
             "md5_map": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/MD5_map.csv",
             "quality": []
-        }
+        })
+        self.testset = SafeDict({
+            "include_healthy": False 
+        })
 
-        self.preprocess = {
+        self.preprocess = SafeDict({
+            "normalize": None,
             "cropping": False,
+            "cropping_ct_thres": None,
+            "cropping_train_randomness": None,
             "resize": True,
             "flip": False, # horizontal flip
-        }
+        })
 
-        self.network = {
+        self.network = SafeDict({
             "name": "SEResUNet", # "SEResUNet" or "UNet"
             "reconstruct": False, # true or false
             "weight_decay": False, # small float point number of false
             "norm_layer": "BN", # "GN" or "BN", this option only works for vanilla unet
-        }
+        })
         self.optimizer = None
+        self.lr_schedule = None
         self.loss = None
 
         # The old default setting kept for reference
@@ -52,24 +82,32 @@ class Config():
         self.max_epoch = cf_dict["max_epoch"]
         self.num_class = cf_dict["num_class"]
         
-        # if "trainset" in cf_dict.keys():
-        for key in cf_dict["trainset"].keys():
+        # The following two are essential so are enforced
+        for key in cf_dict["trainset"]:
             self.trainset[key] = cf_dict["trainset"][key]
-        if "valset" in cf_dict.keys():
-            for key in cf_dict["valset"].keys():
-                self.valset[key] = cf_dict["valset"][key]
+        for key in cf_dict["valset"]:
+            self.valset[key] = cf_dict["valset"][key]
+        if "trainset_eval" in cf_dict:
+            for key in cf_dict["trainset_eval"]:
+                self.trainset_eval[key] = cf_dict["trainset_eval"][key]
+        if "testset" in cf_dict:
+            for key in cf_dict["testset"]:
+                self.testset[key] = cf_dict["testset"][key]
 
         # this should be a list in the json file 
         # indicating the order of preprocessing?
-        assert "normalize" in cf_dict["preprocess"].keys() # This is explicitly required now
+        assert "normalize" in cf_dict["preprocess"] # This is explicitly required now
         for key in cf_dict["preprocess"]:
             self.preprocess[key] = cf_dict["preprocess"][key]
 
-        if "network" in cf_dict:
-            for key in cf_dict["network"]:
-                self.network[key] = cf_dict["network"][key]
+        for key in cf_dict["network"]:
+            self.network[key] = cf_dict["network"][key]
+
         self.optimizer = cf_dict["optimizer"]
-        if "multiclass_loss" in cf_dict.keys():
+        assert "lr_schedule" in cf_dict
+        self.lr_schedule = cf_dict["lr_schedule"]
+
+        if "multiclass_loss" in cf_dict:
             self.loss = cf_dict["multiclass_loss"]
         else:
             self.loss = cf_dict["loss"]
@@ -81,7 +119,7 @@ class Config():
         # use the default setting which is the old setting
         # for the old cfg files where eval configuration is missing
         # new cfg files have to overwrite this to work correctly
-        # if "eval" in cf_dict.keys():
+        # if "eval" in cf_dict:
         #     self.eval = cf_dict["eval"]
 
 class EvalConfig():

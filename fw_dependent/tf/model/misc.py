@@ -12,6 +12,7 @@ def get_norm(norm_name, name, training):
     if norm_name == "BN_layers":
         return partial(tf.layers.batch_normalization, training=training, name=name)
     elif norm_name == "GN_layers":
+        raise Exception("This doesn't work! ")
         return partial(GroupNomr_layers, training=training, name=name)
     elif norm_name == "BN":
         return partial(BatchNorm, name=name)
@@ -25,7 +26,7 @@ def GroupNomr_layers(x, name, training, group=16):
     assert C > group, f"#channels: {C}."
     assert C % group == 0, f"#channels: {C}."
     x = tf.reshape(x, [-1, H, W, C // group, group])
-    x = tf.layers.batch_normalization(x, axis=[1, 2, 3], training=training, name=name)
+    x = tf.layers.batch_normalization(x, axis=[0, 4], training=training, name=name)
     x = tf.reshape(x, [-1, H, W, C])
     return x
 

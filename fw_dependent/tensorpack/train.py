@@ -44,17 +44,21 @@ def parse_args():
             "--batch_size"
             "--min_num_workers" is recommended to be set at 8 unless you are debugging
     """)
-    parser.add_argument("mode", choices=["train", "sess_eval", "val", "test"])
+    parser.add_argument("mode", choices=["train", "trainset_eval", "val", "test", "debug"],
+        help="The major difference between, 'trainset_eval', 'val' and 'test' is how the data is loaded.")
     parser.add_argument("config", help="Config file.")
     parser.add_argument("--gpus_to_use", nargs='+')
     parser.add_argument("-o", "--output_dir",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_")
+        help="If a full existing dir is provided, an auto created one won't be used.",
+        # default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_"
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/UNet_"
+        )
 
     # Train mode related
     parser.add_argument("--train_dir", help="Training set directory.",
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0608/"
-        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0613/"
-        # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0617/"
+        # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0613/"
+        default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0617/"
         )
     parser.add_argument("--train_debug", action="store_true")
 
@@ -69,12 +73,14 @@ def parse_args():
         default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Test_0616"
         # default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0617/"
         )
-    parser.add_argument("--valset_dir", default="/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/Train_0617/")
     parser.add_argument("--model_dir",
-        default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0613_1205_20/")
+        default="/rdfs/fast/home/sunyingge/data/models/workdir_0611/SEResUNET_0613_1205_20/",)
+    parser.add_argument("--auto_seek_ckpt", action="store_true", 
+        help="This overwrites '--model_list'.")
     parser.add_argument("--model_list", nargs='+',
         # default=["model-149644"]
-        # default=[""]
+        # Note this script can't use the following list to directly use "--model_dir"
+        # default=[""] 
         )
     parser.add_argument("--tp_eval", action="store_true", default=True)
     parser.add_argument("--eval_multi", action="store_true", default=True)
@@ -95,18 +101,23 @@ def parse_args():
     return parser.parse_args()
 
 def train(args, cfg):
-    df = PneuSegDF(args, cfg)
-    num_gpu = max(get_num_gpu(), 1)
-    ds = df.prepared(num_gpu, cfg.batch_size)
-    schedule = [(ep, lr / num_gpu) for ep, lr in zip([0] + cfg.optimizer["epoch_to_drop_lr"], cfg.optimizer["lr"])]
     if os.path.exists(os.path.dirname(args.resume)):
         if args.resume_epoch == 1:
-            input("You are resuming but the epoch number is 1, still continue?")
+            input("You are resuming but the epoch number is 1, press Enter to continue if you're finetuning...")
         output_dir = os.path.dirname(args.resume)
-    else:
+    elif not os.path.exists(args.output_dir):
         output_dir = args.output_dir + time.strftime("%m%d_%H%M_%S", time.localtime())
-    if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+    else:
+        output_dir = args.output_dir
+    out_res_dir = pj(output_dir, "result")
+    if not os.path.exists(out_res_dir):
+        os.makedirs(out_res_dir)
+
+    df = PneuSegDF(args.mode, out_res_dir, args.train_dir, args.testset_dir, args.min_num_workers, cfg)
+    num_gpu = max(get_num_gpu(), 1)
+    ds = df.prepared(num_gpu, cfg.batch_size)
+    
     # Avoid overriding config file
     if os.path.exists(pj(output_dir, os.path.basename(args.config))):
         input("Config file will NOT be overwritten. Press Enter to continue...")
@@ -116,17 +127,20 @@ def train(args, cfg):
     callback_list = [
             # PeriodicCallback overwritten the frequency of what's wrapped
             PeriodicCallback(ModelSaver(50, checkpoint_dir=output_dir), every_k_epochs=1),
-            ScheduledHyperParamSetter("learning_rate", schedule),
             GPUUtilizationTracker(),
             MergeAllSummaries(1 if args.train_debug else 0),
             # ProgressBar(["Loss"])
             ]
     if cfg.network["norm_layer"] == "BN_layers":
         callback_list.append(BN_layers_update())
+    if cfg.lr_schedule["type"] == "epoch_wise_constant":
+        schedule = [(ep, lr / num_gpu) for ep, lr in zip([0] + cfg.lr_schedule["epoch_to_drop_lr"], cfg.lr_schedule["lr"])]
+        callback_list.append(ScheduledHyperParamSetter("learning_rate", schedule))
+    steps_per_epoch = len(ds) // num_gpu + 1
     train_cfg = TrainConfig(
-        model=Tensorpack_model(cfg),
+        model=Tensorpack_model(cfg, steps_per_epoch),
         data=QueueInput(ds),
-        steps_per_epoch=len(ds) // num_gpu + 1,
+        steps_per_epoch=steps_per_epoch,
         callbacks=callback_list,
         monitors=[
             # ScalarPrinter(True, whitelist=["Loss", "LR"]),
@@ -144,7 +158,7 @@ def train(args, cfg):
 
 def tp_evaluation(args, cfg, sess, model):
     num_gpu = get_num_gpu()
-    df = PneuSegDF(args, cfg)
+    df = PneuSegDF(args.mode, None, args.train_dir, args.testset_dir, args.min_num_workers, cfg)
     ds = df.eval_prepared(num_gpu, args.batch_size)
     tf.train.Saver().restore(sess, args.model_file)
     if os.path.exists(args.pkl_dir):
@@ -218,7 +232,7 @@ if __name__ == "__main__":
         cfg.batch_size = args.batch_size
     if args.mode == "train":
         train(args, cfg)
-    elif args.mode in ["sess_eval", "val"]:
+    elif args.mode in ["trainset_eval", "val", "test"]:
         args.thickness_thres = 3.0
         config = tf.ConfigProto(allow_soft_placement=True)
         config.gpu_options.allow_growth = True
@@ -230,9 +244,11 @@ if __name__ == "__main__":
         model = Tensorpack_model(cfg)
         model.build_inf_graph(False)
         if args.eval_multi:
+            if args.auto_seek_ckpt:
+                args.model_list = [f.split('.')[0] for f in os.listdir(args.model_dir) if f.endswith(".index")]
             for mname in args.model_list:
                 args.model_file = pj(args.model_dir, mname)
-                args.pkl_dir = args.model_file + "_res.pkl"
+                args.pkl_dir = args.model_file + f"_{args.mode}_res.pkl"
                 if args.tp_eval:
                     tp_evaluation(args, cfg, sess, model)
                 else:
@@ -242,7 +258,7 @@ if __name__ == "__main__":
         else:
             args.pkl_dir = args.model_file + "_res.pkl"
             evaluation("eval_multi", sess, args, cfg, model)
-    elif args.mode == "test":
+    elif args.mode == "debug":
         df = PneuSegDF(args, cfg, args.testset_dir)
         # num_gpu = max(get_num_gpu(), 1)
         # ds = df.eval_prepared(num_gpu, cfg.batch_size)

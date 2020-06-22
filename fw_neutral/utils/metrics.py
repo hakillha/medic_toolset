@@ -6,7 +6,7 @@ from collections import defaultdict
 from os.path import join as pj
 from pprint import pprint
 
-def Pneu_type(file_dir, include_healthy, discard_neg=False):
+def Pneu_type(file_dir, consider_healthy, discard_neg=False):
     matched_tag = 0
     for tag in ["covid_pneu", "healthy"]:
         if tag in file_dir:
@@ -20,7 +20,7 @@ def Pneu_type(file_dir, include_healthy, discard_neg=False):
     elif "normal_pneu" in file_dir or "normal" in file_dir or "hard" in file_dir:
         return "common_pneu"
     elif "healthy" in file_dir:
-        if not include_healthy:
+        if not consider_healthy:
             return None
         return "healthy"
     else:
@@ -173,7 +173,7 @@ class Evaluation():
             res = pickle.load(open(pkl_dir, "rb"))
         else:
             res = self.person_map
-        if overwrite: # No res yet, need to calculate it
+        if overwrite: # No result yet, need to calculate it
             for k, v in res.items():
                 dice = (2 * res[k].pixel_info["intersection"] + EPS) / (res[k].pixel_info["gt_area"] + res[k].pixel_info["pred_area"] + EPS)
                 res[k].pixel_info["dice"] = dice

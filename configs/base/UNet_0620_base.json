@@ -1,14 +1,15 @@
 {
     "batch_size": 8,
     "im_size": [384, 384],
-    "max_epoch": 30,
+    "max_epoch": 10,
     "num_class": 1,
     "trainset":{
-        "data_list": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/metadata/0618/model-118140_res_bad_slice.json",
-        "patient_filter_file": "",
+        "val_ratio": 0.2,
+        "data_list": "",
+        "patient_filter_file": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/metadata/0618/trainq.csv",
+        "quality": ["0"],
         "md5_map": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/metadata/0618/MD5_map.csv",
-        "slice_filter_file": "",
-        "pn_ratio": 1
+        "pn_ratio": 0
     },
     "valset":{
         "patient_filter_file": "/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/metadata/0618/trainq.csv",
