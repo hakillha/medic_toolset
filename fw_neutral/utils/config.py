@@ -16,6 +16,26 @@ class SafeDict(dict):
         for k, v in dict(*args, **kwargs).items():
             self[k] = v
 
+default_lr_schedules = {
+    "epoch_wise_constant": {
+        "type": "epoch_wise_constant",
+        "epoch_to_drop_lr": [8, 14],
+        "lr": [1e-3, 5e-4, 25e-5]
+    },
+    "halved": {
+        "type": "halved",
+        "period": 2,
+        "init_lr": 1e-3,
+        "first_epoch2drop": 2,
+        "decay_rate": 4
+    },
+    "cos_decay": {
+        "type": "cos_decay",
+        "epoch_period": 20,
+        "lr": 1e-4
+    }
+}
+
 # When we extend this to other frameworks we will need subclass this
 class Config():
     def __init__(self):
@@ -67,7 +87,7 @@ class Config():
             "norm_layer": "BN", # "GN" or "BN", this option only works for vanilla unet
         })
         self.optimizer = None
-        self.lr_schedule = None
+        self.lr_schedule = default_lr_schedules["epoch_wise_constant"]
         self.loss = None
 
         # The old default setting kept for reference

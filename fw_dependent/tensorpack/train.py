@@ -136,6 +136,13 @@ def train(args, cfg):
     if cfg.lr_schedule["type"] == "epoch_wise_constant":
         schedule = [(ep, lr / num_gpu) for ep, lr in zip([0] + cfg.lr_schedule["epoch_to_drop_lr"], cfg.lr_schedule["lr"])]
         callback_list.append(ScheduledHyperParamSetter("learning_rate", schedule))
+    elif cfg.lr_schedule["type"] == "halved":
+        schedule = [(0, cfg.lr_schedule["init_lr"])]
+        for i in range(cfg.lr_schedule["first_epoch2drop"], 
+            cfg.max_epoch, cfg.lr_schedule["period"]):
+            schedule.append((i, schedule[int((i - cfg.lr_schedule["first_epoch2drop"]) / cfg.lr_schedule["period"])][1] / (cfg.lr_schedule["decay_rate"] * num_gpu)))
+        print(schedule)
+        callback_list.append(ScheduledHyperParamSetter("learning_rate", schedule))
     steps_per_epoch = len(ds) // num_gpu + 1
     train_cfg = TrainConfig(
         model=Tensorpack_model(cfg, steps_per_epoch),

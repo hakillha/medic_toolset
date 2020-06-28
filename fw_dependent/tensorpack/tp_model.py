@@ -33,7 +33,10 @@ class Tensorpack_model(ModelDesc):
     def optimizer(self):
         if self.cfg.lr_schedule["type"] == "epoch_wise_constant":
             learning_rate = tf.get_variable("learning_rate", 
-                initializer=self.cfg.optimizer["lr"][0], trainable=False)
+                initializer=self.cfg.lr_schedule["lr"][0], trainable=False)
+        elif self.cfg.lr_schedule["type"] == "halved":
+            learning_rate = tf.get_variable("learning_rate", 
+                initializer=self.cfg.lr_schedule["init_lr"], trainable=False)
         elif self.cfg.lr_schedule["type"] == "cos_decay":
             learning_rate = tf.train.cosine_decay(self.cfg.lr_schedule["lr"], 
                 get_global_step_var(), self.cfg.lr_schedule["epoch_period"] * self.steps_per_epoch)

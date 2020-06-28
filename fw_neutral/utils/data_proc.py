@@ -43,7 +43,31 @@ def Combine_pndirs(pn_ratio, pdirs, ndirs):
                 pdirs = np.random.permutation(pdirs).tolist()[:int(len(ndirs) * pn_ratio)]
         print(f"\nNum of pos samples: {len(pdirs)}")
         print(f"Num of neg samples: {len(ndirs)}\n")
-        return pdirs + ndirs
+        print(f"Actual ratio: {len(pdirs)/len(ndirs)}(p2n)")
+        if len(pdirs) >= len(ndirs):
+            list1 = pdirs
+            list2 = ndirs  
+        else:
+            list1 = ndirs
+            list2 = pdirs
+        posis1 = True if len(pdirs) >= len(ndirs) else False
+        ratio = len(list1) / len(list2)
+        incl_prob = ratio - int(ratio)
+        print((ratio, incl_prob))
+        res, i, j = [], 0, 0
+        while j < len(list2) and i + int(ratio) + 1 < len(list1):
+            res.append(list2[j])
+            j += 1
+            num_samp = int(ratio) + 1 if np.random.uniform() < incl_prob else int(ratio)
+            res += list1[i:i + num_samp]
+            i += num_samp
+        left1, left2 = len(list1) - i, len(list2) - j
+        if posis1:
+            leftset = "pos" if left1 > left2 else "neg"
+        else:
+            leftset = "neg" if left1 > left2 else "pos"
+        print(f"Num of {leftset} samples left: {max(left1, left2)}")
+        return res
     else:
         return pdirs
 
@@ -93,7 +117,8 @@ def gen_data_list(data_dir, cfg):
     print(f"Num of patients: {len(p_slice_map.keys())}")
     filtered_ids = Patient_quality_filter(None, p_slice_map.keys(), 
         cfg.trainset["md5_map"], cfg.trainset["patient_filter_file"], cfg.trainset["quality"])
-    random.shuffle(filtered_ids)
+    # random.shuffle(filtered_ids)
+    filtered_ids = np.random.permutation(filtered_ids).tolist()
     val_ids = filtered_ids[-int(len(filtered_ids) * cfg.trainset["val_ratio"]):]
     train_ids = filtered_ids[:len(filtered_ids) - len(val_ids)]
     train_pdirs, train_ndirs, val_dirs = [], [], []

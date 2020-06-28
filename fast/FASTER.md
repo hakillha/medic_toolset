@@ -54,6 +54,8 @@ tensorflow.org/guide/migrate
     * msgpack-1.0.0
     * tabulate-0.8.7
     * msgpack-numpy-0.4.6
+## Implementation details
+* If there are negative samples you need to make sure there are positive samples in every batch, which could be implemented via interleaving pos/neg file directories in the data list.
 
 # Garage
 What need to be changed in `test_graph_disease.py`:  
