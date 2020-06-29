@@ -300,7 +300,8 @@ class extra_processing():
         """
         if self.num_class == 1:
             # to make it compatible with mutlicls label
-            anno = anno > 0 
+            anno = anno > 0
+        anno = anno.astype(np.float32)
 
         im = im_normalize(im, self.cfg["normalize"]["ct_interval"],
             self.cfg["normalize"]["norm_by_interval"])
@@ -385,6 +386,22 @@ class extra_processing():
                 pred_stack.append(cv2.resize(pred_batch[i,:,:,0].astype(np.float32), self.og_shape, interpolation=cv2.INTER_NEAREST))
         self.tl_list = [] # clear up this list
         return np.expand_dims(np.array(pred_stack), -1)
+
+    def train_process(self, data_dir):
+        data = pickle.load(open(data_dir, "rb"))
+        return self.preprocess(data["im"], data["mask"])
+
+    def val_process(self, data_dir):
+        data = pickle.load(open(data_dir, "rb"))
+        return self.preprocess(data["im"], data["mask"], False) + [data_dir, data["im"]]
+
+    def train_process_tfdata(self, data_dir):
+        data = pickle.load(open(data_dir, "rb"))
+        return self.preprocess(data["im"], data["mask"]) + [(0, 0), "", np.zeros((1), np.float32)]
+    
+    def val_process_tfdata(self, data_dir):
+        data = pickle.load(open(data_dir, "rb"))
+        return self.preprocess(data["im"], data["mask"], False) + [data_dir, data["im"]]
 
 if __name__ == "__main__":
     Patient_quality_filter("/rdfs/fast/home/sunyingge/data/COV_19/prced_0512/trainq.csv")

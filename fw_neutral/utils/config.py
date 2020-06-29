@@ -88,6 +88,9 @@ class Config():
         })
         self.optimizer = None
         self.lr_schedule = default_lr_schedules["epoch_wise_constant"]
+        self.warmup = True
+        self.warmup_init_multiplier = 1e-3
+        self.warmup_steps = 1000
         self.loss = None
 
         # The old default setting kept for reference

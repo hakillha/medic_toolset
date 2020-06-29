@@ -26,8 +26,10 @@ from fw_dependent.tf.model.tf_layers import tf_model_v2
 from fw_dependent.tf.tools.train_tf_lowlevel import evaluation
 from fw_neutral.utils.config import Config
 from fw_neutral.utils.data_proc import im_normalize
+from fw_neutral.utils.traineval import gen_outdirs
 from fw_neutral.utils.metrics import Evaluation, Pneu_type
 from fw_neutral.utils.viz import viz_patient
+from fw_neutral.utils.traineval import gen_outdirs
 
 from tensorpack.dataflow import TestDataSpeed, PrintData
 
@@ -101,24 +103,13 @@ def parse_args():
     return parser.parse_args()
 
 def train(args, cfg):
-    if os.path.exists(os.path.dirname(args.resume)):
-        if args.resume_epoch == 1:
-            input("You are resuming but the epoch number is 1, press Enter to continue if you're finetuning...")
-        output_dir = os.path.dirname(args.resume)
-    elif not os.path.exists(args.output_dir):
-        output_dir = args.output_dir + time.strftime("%m%d_%H%M_%S", time.localtime())
-        os.makedirs(output_dir)
-    else:
-        output_dir = args.output_dir
-    out_res_dir = pj(output_dir, "result")
-    if not os.path.exists(out_res_dir):
-        os.makedirs(out_res_dir)
-
+    out_dirs = gen_outdirs(args, "tp")
+    output_dir, out_res_dir = out_dirs["output_dir"], out_dirs["out_res_dir"]
     df = PneuSegDF(args.mode, out_res_dir, args.train_dir, args.testset_dir, args.min_num_workers, cfg)
     num_gpu = max(get_num_gpu(), 1)
     ds = df.prepared(num_gpu, cfg.batch_size)
     
-    # Avoid overriding config file
+    # Avoid overwritting config file
     if os.path.exists(pj(output_dir, os.path.basename(args.config))):
         input("Config file will NOT be overwritten. Press Enter to continue...")
     else:

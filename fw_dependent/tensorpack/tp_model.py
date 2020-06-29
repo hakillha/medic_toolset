@@ -22,7 +22,7 @@ class Tensorpack_model(ModelDesc):
             tf.TensorSpec([None, self.cfg.im_size[0], self.cfg.im_size[1], 1], name=self.in_gt_tname)]
     
     def build_graph(self, im, gt, training=None):
-        model_class = choose_model(self.cfg)
+        model_class = choose_model(self.cfg.network["name"])
         if training == None:
             training = get_current_tower_context().is_training
         self.ops = model_class(im, self.cfg, training)

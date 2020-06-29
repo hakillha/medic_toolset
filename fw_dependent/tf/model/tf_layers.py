@@ -5,7 +5,7 @@ sys.path.insert(0, "../../..")
 from fw_dependent.tf.model.ASEUNet import SEResUNet
 from fw_dependent.tf.model.UNet import UNet, UNet_v1, UNet_v1_9, UNet_v2
 
-def choose_model(cfg):
+def choose_model(name):
     MODEL_MAP = {
         "SEResUNet": SEResUNet,
         "UNet": UNet,
@@ -13,7 +13,7 @@ def choose_model(cfg):
         "UNet_v1.9": UNet_v1_9,
         "UNet_v2": UNet_v2
     }
-    return MODEL_MAP[cfg.network["name"]]
+    return MODEL_MAP[name]
 
 def hbloss_dice_focal_v0(pred, input_ann):
     prob = tf.math.sigmoid(pred)
@@ -186,7 +186,7 @@ class tf_model_v2():
         with tf.device("/cpu:0"):
             self.in_im = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_im")
             self.in_gt = tf.placeholder(tf.float32, shape=(None, cfg.im_size[0], cfg.im_size[1], 1), name="input_gt")
-        model_class = choose_model(cfg)
+        model_class = choose_model(cfg.network["name"])
         self.pred = model_class(self.in_im, cfg, training)
         # self.prob = tf.math.sigmoid(self.pred["seg_map"]) 
 
